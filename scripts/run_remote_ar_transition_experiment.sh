@@ -10,18 +10,29 @@ TEACHER_MODEL="${TEACHER_MODEL:-Qwen/Qwen2.5-0.5B-Instruct}"
 DENOISER_MODEL="${DENOISER_MODEL:-google/flan-t5-small}"
 TOP_K="${TOP_K:-8}"
 BETA="${BETA:-0.35}"
-VARIANTS_PER_EXAMPLE="${VARIANTS_PER_EXAMPLE:-8}"
+VARIANTS_PER_EXAMPLE="${VARIANTS_PER_EXAMPLE:-4}"
 MAX_EXAMPLES="${MAX_EXAMPLES:-0}"
+DATA_FILE="${DATA_FILE:-artifacts/sql_create_context_subset.jsonl}"
+DATASET_NAME="${DATASET_NAME:-b-mc2/sql-create-context}"
+DATASET_MAX_EXAMPLES="${DATASET_MAX_EXAMPLES:-200}"
+MAX_TARGET_TOKENS="${MAX_TARGET_TOKENS:-160}"
 EVAL_RATIO="${EVAL_RATIO:-0.2}"
 EPOCHS="${EPOCHS:-3}"
 BATCH_SIZE="${BATCH_SIZE:-4}"
 
+python -m ar_gstd.prepare_sql_create_context \
+  --dataset "$DATASET_NAME" \
+  --output "$DATA_FILE" \
+  --max-examples "$DATASET_MAX_EXAMPLES" \
+  --seed 7
+
 python -m ar_gstd.build_transition_cache \
-  --input data/meeting_summaries_seed.jsonl \
+  --input "$DATA_FILE" \
   --output artifacts/ar_transition_cache.jsonl \
   --teacher-model "$TEACHER_MODEL" \
   --top-k "$TOP_K" \
   --max-examples "$MAX_EXAMPLES" \
+  --max-target-tokens "$MAX_TARGET_TOKENS" \
   --device auto
 
 python -m ar_gstd.make_fixed_transition_cache \
@@ -99,6 +110,7 @@ python -m ar_gstd.summarize_metrics \
   artifacts/metrics_fixed_on_fixed.json
 
 printf '\nFinished AR-top-k and fixed-top-k denoiser run.\n'
+printf 'Dataset file: %s\n' "$DATA_FILE"
 printf 'Transition cache: artifacts/ar_transition_cache.jsonl\n'
 printf 'Fixed baseline cache: artifacts/fixed_transition_cache.jsonl\n'
 printf 'AR training pairs: artifacts/train_pairs_ar.jsonl\n'

@@ -94,10 +94,10 @@ def main() -> None:
 
 def build_denoising_prompt(transcript: str, corrupted_summary: str) -> str:
     return (
-        "Repair the noisy structured summary using the transcript.\n\n"
-        f"Transcript:\n{transcript}\n\n"
-        f"Noisy structured summary:\n{corrupted_summary}\n\n"
-        "Clean structured summary:"
+        "Repair the noisy target output using the source context.\n\n"
+        f"Source context:\n{transcript}\n\n"
+        f"Noisy target output:\n{corrupted_summary}\n\n"
+        "Clean target output:"
     )
 
 

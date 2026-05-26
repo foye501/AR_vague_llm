@@ -5,6 +5,9 @@ import json
 from pathlib import Path
 
 KEY_METRICS = (
+    "sql_exact_match",
+    "sql_keyword_valid",
+    "sql_repair_delta",
     "prediction_token_f1",
     "corrupted_token_f1",
     "token_f1_repair_delta",
@@ -33,8 +36,8 @@ def to_markdown(rows: list[tuple[str, dict[str, float | int]]]) -> str:
     lines = [
         "# Denoiser Metrics Summary",
         "",
-        "| Run | Rows | Token F1 | Corrupted Token F1 | Token Repair Delta | Line F1 | Line Repair Delta | Heading Valid | Owner Acc | Deadline Acc | Decision Acc |",
-        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+        "| Run | Rows | SQL EM | SQL Valid | SQL Repair Delta | Token F1 | Corrupted Token F1 | Token Repair Delta | Line F1 | Line Repair Delta |",
+        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
     ]
     for label, metrics in rows:
         lines.append(
@@ -43,15 +46,14 @@ def to_markdown(rows: list[tuple[str, dict[str, float | int]]]) -> str:
                 [
                     label,
                     str(metrics.get("rows", 0)),
+                    _fmt(metrics.get("sql_exact_match", 0.0)),
+                    _fmt(metrics.get("sql_keyword_valid", 0.0)),
+                    _fmt(metrics.get("sql_repair_delta", 0.0)),
                     _fmt(metrics.get("prediction_token_f1", 0.0)),
                     _fmt(metrics.get("corrupted_token_f1", 0.0)),
                     _fmt(metrics.get("token_f1_repair_delta", 0.0)),
                     _fmt(metrics.get("prediction_line_f1", 0.0)),
                     _fmt(metrics.get("line_f1_repair_delta", 0.0)),
-                    _fmt(metrics.get("prediction_heading_valid", 0.0)),
-                    _fmt(metrics.get("owner_term_accuracy", 0.0)),
-                    _fmt(metrics.get("deadline_term_accuracy", 0.0)),
-                    _fmt(metrics.get("decision_term_accuracy", 0.0)),
                 ]
             )
             + " |"

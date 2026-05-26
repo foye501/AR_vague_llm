@@ -87,6 +87,10 @@ def score_predictions(rows: list[dict[str, str]]) -> dict[str, float | int]:
     return {
         "rows": len(rows),
         "prediction_exact_match": _rate(_normalize(row["prediction"]) == _normalize(row["clean_summary"]) for row in rows),
+        "sql_exact_match": _rate(_normalize_sql(row["prediction"]) == _normalize_sql(row["clean_summary"]) for row in rows),
+        "sql_keyword_valid": _rate(_looks_like_sql(row["prediction"]) for row in rows),
+        "sql_repair_delta": _rate(_normalize_sql(row["prediction"]) == _normalize_sql(row["clean_summary"]) for row in rows)
+        - _rate(_normalize_sql(row["corrupted_summary"]) == _normalize_sql(row["clean_summary"]) for row in rows),
         "prediction_heading_valid": _rate(all(heading in row["prediction"] for heading in REQUIRED_HEADINGS) for row in rows),
         "prediction_token_f1": mean(prediction_token_f1),
         "corrupted_token_f1": mean(corrupted_token_f1),
@@ -149,6 +153,22 @@ def _tokens(text: str) -> list[str]:
 
 def _normalize(text: str) -> str:
     return " ".join(text.lower().split())
+
+
+def _normalize_sql(text: str) -> str:
+    text = text.strip().rstrip(";").lower()
+    text = re.sub(r"\s+", " ", text)
+    text = re.sub(r"\s*([(),=<>+\-*/])\s*", r"\1", text)
+    return text
+
+
+def _looks_like_sql(text: str) -> bool:
+    normalized = _normalize_sql(text)
+    if not normalized.startswith("select "):
+        return False
+    if " from " not in f" {normalized} ":
+        return False
+    return normalized.count("(") == normalized.count(")")
 
 
 def _rate(values) -> float:

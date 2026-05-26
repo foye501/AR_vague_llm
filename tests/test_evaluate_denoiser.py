@@ -16,3 +16,19 @@ def test_score_predictions_reports_repair_delta() -> None:
     assert metrics["prediction_exact_match"] == 1.0
     assert metrics["token_f1_repair_delta"] > 0
     assert metrics["prediction_heading_valid"] == 1.0
+
+
+def test_score_predictions_reports_sql_metrics() -> None:
+    rows = [
+        {
+            "corrupted_summary": "SELECT name FROM singer WHERE age > 30",
+            "prediction": "SELECT name FROM singer WHERE age = 30;",
+            "clean_summary": "select name from singer where age=30",
+        }
+    ]
+
+    metrics = score_predictions(rows)
+
+    assert metrics["sql_exact_match"] == 1.0
+    assert metrics["sql_keyword_valid"] == 1.0
+    assert metrics["sql_repair_delta"] == 1.0

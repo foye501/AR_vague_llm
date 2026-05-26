@@ -100,9 +100,9 @@ def main() -> None:
 
 def build_teacher_prompt(transcript: str, clean_prefix: str) -> str:
     return (
-        "You are writing a structured meeting summary from the transcript.\n\n"
-        f"Transcript:\n{transcript}\n\n"
-        "Structured summary:\n"
+        "You are generating a target output from the given source context.\n\n"
+        f"Source context:\n{transcript}\n\n"
+        "Target output prefix:\n"
         f"{clean_prefix}"
     )
 

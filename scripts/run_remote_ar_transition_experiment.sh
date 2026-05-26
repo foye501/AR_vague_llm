@@ -12,6 +12,9 @@ TOP_K="${TOP_K:-8}"
 BETA="${BETA:-0.35}"
 VARIANTS_PER_EXAMPLE="${VARIANTS_PER_EXAMPLE:-8}"
 MAX_EXAMPLES="${MAX_EXAMPLES:-0}"
+EVAL_RATIO="${EVAL_RATIO:-0.2}"
+EPOCHS="${EPOCHS:-3}"
+BATCH_SIZE="${BATCH_SIZE:-4}"
 
 python -m ar_gstd.build_transition_cache \
   --input data/meeting_summaries_seed.jsonl \
@@ -44,12 +47,63 @@ python -m ar_gstd.train_seq2seq_denoiser \
   --train-file artifacts/train_pairs_ar.jsonl \
   --output-dir artifacts/denoiser_ar \
   --model-name "$DENOISER_MODEL" \
-  --epochs 3 \
-  --batch-size 4
+  --epochs "$EPOCHS" \
+  --batch-size "$BATCH_SIZE" \
+  --eval-ratio "$EVAL_RATIO" \
+  --train-split-output artifacts/train_pairs_ar_train.jsonl \
+  --eval-split-output artifacts/train_pairs_ar_eval.jsonl
 
-printf '\nFinished AR-top-k denoiser run.\n'
+python -m ar_gstd.train_seq2seq_denoiser \
+  --train-file artifacts/train_pairs_fixed.jsonl \
+  --output-dir artifacts/denoiser_fixed \
+  --model-name "$DENOISER_MODEL" \
+  --epochs "$EPOCHS" \
+  --batch-size "$BATCH_SIZE" \
+  --eval-ratio "$EVAL_RATIO" \
+  --train-split-output artifacts/train_pairs_fixed_train.jsonl \
+  --eval-split-output artifacts/train_pairs_fixed_eval.jsonl
+
+python -m ar_gstd.evaluate_denoiser \
+  --model-dir artifacts/denoiser_ar/final \
+  --eval-file artifacts/train_pairs_ar_eval.jsonl \
+  --output-predictions artifacts/predictions_ar_on_ar.jsonl \
+  --output-metrics artifacts/metrics_ar_on_ar.json \
+  --batch-size "$BATCH_SIZE"
+
+python -m ar_gstd.evaluate_denoiser \
+  --model-dir artifacts/denoiser_fixed/final \
+  --eval-file artifacts/train_pairs_ar_eval.jsonl \
+  --output-predictions artifacts/predictions_fixed_on_ar.jsonl \
+  --output-metrics artifacts/metrics_fixed_on_ar.json \
+  --batch-size "$BATCH_SIZE"
+
+python -m ar_gstd.evaluate_denoiser \
+  --model-dir artifacts/denoiser_ar/final \
+  --eval-file artifacts/train_pairs_fixed_eval.jsonl \
+  --output-predictions artifacts/predictions_ar_on_fixed.jsonl \
+  --output-metrics artifacts/metrics_ar_on_fixed.json \
+  --batch-size "$BATCH_SIZE"
+
+python -m ar_gstd.evaluate_denoiser \
+  --model-dir artifacts/denoiser_fixed/final \
+  --eval-file artifacts/train_pairs_fixed_eval.jsonl \
+  --output-predictions artifacts/predictions_fixed_on_fixed.jsonl \
+  --output-metrics artifacts/metrics_fixed_on_fixed.json \
+  --batch-size "$BATCH_SIZE"
+
+python -m ar_gstd.summarize_metrics \
+  --output artifacts/metrics_summary.md \
+  artifacts/metrics_ar_on_ar.json \
+  artifacts/metrics_fixed_on_ar.json \
+  artifacts/metrics_ar_on_fixed.json \
+  artifacts/metrics_fixed_on_fixed.json
+
+printf '\nFinished AR-top-k and fixed-top-k denoiser run.\n'
 printf 'Transition cache: artifacts/ar_transition_cache.jsonl\n'
 printf 'Fixed baseline cache: artifacts/fixed_transition_cache.jsonl\n'
 printf 'AR training pairs: artifacts/train_pairs_ar.jsonl\n'
 printf 'Fixed training pairs: artifacts/train_pairs_fixed.jsonl\n'
-printf 'Model output: artifacts/denoiser_ar/final\n'
+printf 'AR model output: artifacts/denoiser_ar/final\n'
+printf 'Fixed model output: artifacts/denoiser_fixed/final\n'
+printf 'Main comparison: artifacts/metrics_ar_on_ar.json vs artifacts/metrics_fixed_on_ar.json\n'
+printf 'Summary table: artifacts/metrics_summary.md\n'

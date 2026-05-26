@@ -93,6 +93,10 @@ This produces:
 - `artifacts/train_pairs_ar.jsonl`: sampled AR-top-k denoising pairs.
 - `artifacts/train_pairs_fixed.jsonl`: sampled fixed-top-k denoising pairs.
 - `artifacts/denoiser_ar/final`: first trained denoising model.
+- `artifacts/denoiser_fixed/final`: fixed-transition baseline denoising model.
+- `artifacts/metrics_ar_on_ar.json`: conditional AR model on held-out AR corruptions.
+- `artifacts/metrics_fixed_on_ar.json`: fixed baseline model on the same held-out AR corruptions.
+- `artifacts/metrics_summary.md`: table of AR/fixed train-test combinations.
 
 ## Manual Pipeline
 
@@ -136,6 +140,25 @@ python -m ar_gstd.train_seq2seq_denoiser \
   --epochs 3 \
   --batch-size 4
 ```
+
+Evaluate generated predictions:
+
+```bash
+python -m ar_gstd.evaluate_denoiser \
+  --model-dir artifacts/denoiser_ar/final \
+  --eval-file artifacts/train_pairs_ar_eval.jsonl \
+  --output-predictions artifacts/predictions_ar_on_ar.jsonl \
+  --output-metrics artifacts/metrics_ar_on_ar.json
+```
+
+The important metrics are:
+
+- `token_f1_repair_delta`: whether prediction improves over the corrupted input.
+- `line_f1_repair_delta`: whether the model recovers exact summary bullets.
+- `prediction_heading_valid`: whether the output keeps the required structured format.
+- `owner_term_accuracy`, `deadline_term_accuracy`, `decision_term_accuracy`: task-specific recovery signals.
+
+Do not use training loss or eval loss as the main evidence. The paper needs held-out generated predictions and a comparison against fixed top-k, mask, random, and embedding baselines.
 
 If the server cannot access your Git provider, create a bundle locally and copy it:
 

@@ -10,3 +10,5 @@ runs/
 artifacts/*transition_cache.jsonl
 artifacts/train_pairs_*.jsonl
 artifacts/denoiser_*/
+artifacts/predictions_*.jsonl
+artifacts/metrics_*.json

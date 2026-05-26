@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from ar_gstd.train_seq2seq_denoiser import build_trainer_kwargs, build_training_args_kwargs
+from ar_gstd.train_seq2seq_denoiser import build_trainer_kwargs, build_training_args_kwargs, split_rows_by_example_id
 
 
 class NewTrainingArgs:
@@ -99,3 +99,24 @@ def test_trainer_kwargs_omit_tokenizer_when_unsupported() -> None:
 
     assert "tokenizer" not in kwargs
     assert "processing_class" not in kwargs
+
+
+def test_split_rows_by_example_id_keeps_variants_together() -> None:
+    rows = [
+        {"id": "a#v0"},
+        {"id": "a#v1"},
+        {"id": "b#v0"},
+        {"id": "b#v1"},
+        {"id": "c#v0"},
+        {"id": "c#v1"},
+        {"id": "d#v0"},
+        {"id": "d#v1"},
+    ]
+
+    train_rows, eval_rows = split_rows_by_example_id(rows, eval_ratio=0.25, seed=3)
+    train_ids = {row["id"].split("#", 1)[0] for row in train_rows}
+    eval_ids = {row["id"].split("#", 1)[0] for row in eval_rows}
+
+    assert train_ids
+    assert eval_ids
+    assert train_ids.isdisjoint(eval_ids)

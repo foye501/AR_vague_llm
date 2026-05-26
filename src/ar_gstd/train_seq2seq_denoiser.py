@@ -16,6 +16,9 @@ def main() -> None:
     parser.add_argument("--batch-size", type=int, default=4)
     parser.add_argument("--learning-rate", type=float, default=5e-5)
     parser.add_argument("--eval-ratio", type=float, default=0.1)
+    parser.add_argument("--eval-file", type=Path, default=None)
+    parser.add_argument("--train-split-output", type=Path, default=None)
+    parser.add_argument("--eval-split-output", type=Path, default=None)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--max-source-length", type=int, default=768)
     parser.add_argument("--max-target-length", type=int, default=256)
@@ -34,10 +37,17 @@ def main() -> None:
     rows = [json.loads(line) for line in args.train_file.read_text(encoding="utf-8").splitlines() if line.strip()]
     if len(rows) < 2:
         raise SystemExit("Need at least two training rows.")
-    random.Random(args.seed).shuffle(rows)
-    split_at = max(1, int(len(rows) * (1 - args.eval_ratio)))
-    train_rows = rows[:split_at]
-    eval_rows = rows[split_at:] or rows[:1]
+    if args.eval_file:
+        train_rows = rows
+        eval_rows = [json.loads(line) for line in args.eval_file.read_text(encoding="utf-8").splitlines() if line.strip()]
+    else:
+        train_rows, eval_rows = split_rows_by_example_id(rows, eval_ratio=args.eval_ratio, seed=args.seed)
+    if not eval_rows:
+        raise SystemExit("Evaluation split is empty.")
+    if args.train_split_output:
+        write_jsonl(args.train_split_output, train_rows)
+    if args.eval_split_output:
+        write_jsonl(args.eval_split_output, eval_rows)
 
     tokenizer = AutoTokenizer.from_pretrained(args.model_name)
     model = AutoModelForSeq2SeqLM.from_pretrained(args.model_name)
@@ -89,6 +99,36 @@ def build_denoising_prompt(transcript: str, corrupted_summary: str) -> str:
         f"Noisy structured summary:\n{corrupted_summary}\n\n"
         "Clean structured summary:"
     )
+
+
+def split_rows_by_example_id(
+    rows: list[dict[str, str]],
+    *,
+    eval_ratio: float,
+    seed: int,
+) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
+    if not 0 < eval_ratio < 1:
+        raise ValueError("eval_ratio must be between 0 and 1")
+
+    group_ids = sorted({base_example_id(row["id"]) for row in rows})
+    random.Random(seed).shuffle(group_ids)
+    eval_count = max(1, round(len(group_ids) * eval_ratio))
+    if eval_count >= len(group_ids):
+        eval_count = len(group_ids) - 1
+    eval_ids = set(group_ids[:eval_count])
+
+    train_rows = [row for row in rows if base_example_id(row["id"]) not in eval_ids]
+    eval_rows = [row for row in rows if base_example_id(row["id"]) in eval_ids]
+    return train_rows, eval_rows
+
+
+def base_example_id(row_id: str) -> str:
+    return row_id.split("#", 1)[0]
+
+
+def write_jsonl(path: Path, rows: list[dict[str, str]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(json.dumps(row, ensure_ascii=False) for row in rows) + "\n", encoding="utf-8")
 
 
 def build_training_args_kwargs(

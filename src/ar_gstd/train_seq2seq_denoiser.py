@@ -67,12 +67,15 @@ def main() -> None:
         )
     )
     trainer = Seq2SeqTrainer(
-        model=model,
-        args=training_args,
-        train_dataset=train_dataset,
-        eval_dataset=eval_dataset,
-        data_collator=collator,
-        tokenizer=tokenizer,
+        **build_trainer_kwargs(
+            Seq2SeqTrainer,
+            model=model,
+            training_args=training_args,
+            train_dataset=train_dataset,
+            eval_dataset=eval_dataset,
+            data_collator=collator,
+            tokenizer=tokenizer,
+        )
     )
     trainer.train()
     trainer.save_model(str(args.output_dir / "final"))
@@ -121,6 +124,33 @@ def build_training_args_kwargs(
     for key, value in optional_kwargs.items():
         if key in parameters:
             kwargs[key] = value
+
+    return kwargs
+
+
+def build_trainer_kwargs(
+    trainer_cls,
+    *,
+    model,
+    training_args,
+    train_dataset,
+    eval_dataset,
+    data_collator,
+    tokenizer,
+) -> dict[str, object]:
+    parameters = inspect.signature(trainer_cls.__init__).parameters
+    kwargs: dict[str, object] = {
+        "model": model,
+        "args": training_args,
+        "train_dataset": train_dataset,
+        "eval_dataset": eval_dataset,
+        "data_collator": data_collator,
+    }
+
+    if "processing_class" in parameters:
+        kwargs["processing_class"] = tokenizer
+    elif "tokenizer" in parameters:
+        kwargs["tokenizer"] = tokenizer
 
     return kwargs
 

@@ -90,12 +90,54 @@ def main() -> None:
 
 
 def build_prompt_from_batch(batch: dict[str, list], index: int) -> str:
-    return build_denoising_prompt(
-        batch["transcript"][index],
-        batch["corrupted_summary"][index],
+    return build_prompt(
+        transcript=batch["transcript"][index],
+        corrupted_summary=_batch_value(batch, "corrupted_summary", index) or "",
+        prompt_mode=_batch_value(batch, "prompt_mode", index) or "repair",
         timestep=_batch_value(batch, "timestep", index),
         num_steps=_batch_value(batch, "num_steps", index),
         noise_kind=_batch_value(batch, "noise_kind", index) or _batch_value(batch, "strategy", index),
+    )
+
+
+def build_prompt_from_row(row: dict[str, object]) -> str:
+    return build_prompt(
+        transcript=str(row["transcript"]),
+        corrupted_summary=str(row.get("corrupted_summary", "")),
+        prompt_mode=str(row.get("prompt_mode", "repair")),
+        timestep=row.get("timestep"),
+        num_steps=row.get("num_steps"),
+        noise_kind=row.get("noise_kind") or row.get("strategy"),
+    )
+
+
+def build_prompt(
+    *,
+    transcript: str,
+    corrupted_summary: str,
+    prompt_mode: str,
+    timestep: object | None = None,
+    num_steps: object | None = None,
+    noise_kind: object | None = None,
+) -> str:
+    if prompt_mode == "generate":
+        return build_generation_prompt(transcript)
+    if prompt_mode == "repair":
+        return build_denoising_prompt(
+            transcript,
+            corrupted_summary,
+            timestep=timestep,
+            num_steps=num_steps,
+            noise_kind=noise_kind,
+        )
+    raise ValueError(f"unknown prompt_mode: {prompt_mode}")
+
+
+def build_generation_prompt(transcript: str) -> str:
+    return (
+        "Generate the target output using the source context.\n\n"
+        f"Source context:\n{transcript}\n\n"
+        "Target output:"
     )
 
 

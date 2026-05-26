@@ -7,7 +7,7 @@ from pathlib import Path
 import re
 from statistics import mean
 
-from .train_seq2seq_denoiser import build_denoising_prompt
+from .train_seq2seq_denoiser import build_prompt_from_row
 
 REQUIRED_HEADINGS = ("## Key Decisions", "## Risks and Open Issues", "## To-do")
 OWNER_TERMS = ("Kevin", "Maya", "Alex")
@@ -17,7 +17,7 @@ DECISION_TERMS = ("decided", "discussed", "considered", "proposed", "agreed", "r
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Generate and score denoiser predictions.")
-    parser.add_argument("--model-dir", type=Path, required=True)
+    parser.add_argument("--model-dir", required=True)
     parser.add_argument("--eval-file", type=Path, required=True)
     parser.add_argument("--output-predictions", type=Path, required=True)
     parser.add_argument("--output-metrics", type=Path, required=True)
@@ -38,8 +38,8 @@ def main() -> None:
     if not rows:
         raise SystemExit(f"No rows found in {args.eval_file}")
 
-    tokenizer = AutoTokenizer.from_pretrained(args.model_dir)
-    model = AutoModelForSeq2SeqLM.from_pretrained(args.model_dir)
+    tokenizer = AutoTokenizer.from_pretrained(str(args.model_dir))
+    model = AutoModelForSeq2SeqLM.from_pretrained(str(args.model_dir))
     device = _resolve_device(args.device, torch)
     model.to(device)
     model.eval()
@@ -47,16 +47,7 @@ def main() -> None:
     predictions: list[dict[str, str]] = []
     for start in range(0, len(rows), args.batch_size):
         batch = rows[start : start + args.batch_size]
-        prompts = [
-            build_denoising_prompt(
-                row["transcript"],
-                row["corrupted_summary"],
-                timestep=row.get("timestep"),
-                num_steps=row.get("num_steps"),
-                noise_kind=row.get("noise_kind") or row.get("strategy"),
-            )
-            for row in batch
-        ]
+        prompts = [build_prompt_from_row(row) for row in batch]
         encoded = tokenizer(
             prompts,
             return_tensors="pt",
@@ -72,6 +63,7 @@ def main() -> None:
                 {
                     "id": row["id"],
                     "strategy": row.get("strategy", ""),
+                    "prompt_mode": row.get("prompt_mode", "repair"),
                     "noise_kind": row.get("noise_kind", ""),
                     "timestep": row.get("timestep", ""),
                     "num_steps": row.get("num_steps", ""),

@@ -28,6 +28,34 @@ python -m ar_gstd.prepare_sql_create_context \
   --max-examples "$DATASET_MAX_EXAMPLES" \
   --seed 7
 
+python -m ar_gstd.materialize_clean_training_data \
+  --input "$DATA_FILE" \
+  --output artifacts/train_pairs_clean_sft.jsonl
+
+python -m ar_gstd.train_seq2seq_denoiser \
+  --train-file artifacts/train_pairs_clean_sft.jsonl \
+  --output-dir artifacts/denoiser_clean_sft \
+  --model-name "$DENOISER_MODEL" \
+  --epochs "$EPOCHS" \
+  --batch-size "$BATCH_SIZE" \
+  --eval-ratio "$EVAL_RATIO" \
+  --train-split-output artifacts/train_pairs_clean_sft_train.jsonl \
+  --eval-split-output artifacts/train_pairs_clean_sft_eval.jsonl
+
+python -m ar_gstd.evaluate_denoiser \
+  --model-dir "$DENOISER_MODEL" \
+  --eval-file artifacts/train_pairs_clean_sft_eval.jsonl \
+  --output-predictions artifacts/predictions_base_zero_shot.jsonl \
+  --output-metrics artifacts/metrics_base_zero_shot.json \
+  --batch-size "$BATCH_SIZE"
+
+python -m ar_gstd.evaluate_denoiser \
+  --model-dir artifacts/denoiser_clean_sft/final \
+  --eval-file artifacts/train_pairs_clean_sft_eval.jsonl \
+  --output-predictions artifacts/predictions_clean_sft.jsonl \
+  --output-metrics artifacts/metrics_clean_sft.json \
+  --batch-size "$BATCH_SIZE"
+
 python -m ar_gstd.build_transition_cache \
   --input "$DATA_FILE" \
   --output artifacts/ar_transition_cache.jsonl \
@@ -131,5 +159,14 @@ python -m ar_gstd.summarize_metrics \
   artifacts/metrics_diff_ar_absorb_tT.json \
   artifacts/metrics_diff_fixed_absorb_tT.json
 
+python -m ar_gstd.summarize_metrics \
+  --output artifacts/metrics_control_summary.md \
+  artifacts/metrics_base_zero_shot.json \
+  artifacts/metrics_clean_sft.json \
+  artifacts/metrics_diff_absorb_tT.json \
+  artifacts/metrics_diff_ar_absorb_tT.json \
+  artifacts/metrics_diff_fixed_absorb_tT.json
+
 printf '\nFinished diffusion-style all-mask endpoint run.\n'
 printf 'Main comparison: artifacts/metrics_diffusion_tT_summary.md\n'
+printf 'Control comparison: artifacts/metrics_control_summary.md\n'

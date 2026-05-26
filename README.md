@@ -132,6 +132,8 @@ bash scripts/run_remote_diffusion_experiment.sh
 
 This trains:
 
+- `base_zero_shot`: the untouched pretrained student, evaluated with clean source-to-target generation prompts.
+- `denoiser_clean_sft`: ordinary supervised fine-tuning on clean source-to-SQL pairs.
 - `denoiser_diff_absorb`: pure absorbing masked diffusion-style noising.
 - `denoiser_diff_ar_absorb`: absorbing endpoint plus conditional AR top-k intermediate states.
 - `denoiser_diff_fixed_absorb`: absorbing endpoint plus fixed top-k intermediate states.
@@ -143,6 +145,14 @@ cat artifacts/metrics_diffusion_tT_summary.md
 ```
 
 That table evaluates all models at `t=T`, where the input is total `[MASK]` noise. If `diff_ar_absorb_tT` beats `diff_absorb_tT` and `diff_fixed_absorb_tT`, then the result supports the claim that conditional AR logits improve diffusion training without changing the all-mask endpoint.
+
+Also inspect:
+
+```bash
+cat artifacts/metrics_control_summary.md
+```
+
+This separates pretrained ability and clean SFT from the diffusion-style objectives. The diffusion claim should compare only models with the same pretrained initialization and no AR teacher at inference time.
 
 ## Manual Pipeline
 

@@ -19,6 +19,10 @@ def main() -> None:
     parser.add_argument("--bf16", action="store_true")
     parser.add_argument("--fp16", action="store_true")
     parser.add_argument("--gradient-checkpointing", action="store_true")
+    parser.add_argument("--save-strategy", default="no", choices=("no", "epoch", "steps"))
+    parser.add_argument("--save-steps", type=int, default=500)
+    parser.add_argument("--save-total-limit", type=int, default=1)
+    parser.add_argument("--resume-from-checkpoint", default=None)
     parser.add_argument("--eval-ratio", type=float, default=0.1)
     parser.add_argument("--eval-file", type=Path, default=None)
     parser.add_argument("--train-split-output", type=Path, default=None)
@@ -83,6 +87,9 @@ def main() -> None:
             bf16=args.bf16,
             fp16=args.fp16,
             gradient_checkpointing=args.gradient_checkpointing,
+            save_strategy=args.save_strategy,
+            save_steps=args.save_steps,
+            save_total_limit=args.save_total_limit,
         )
     )
     trainer = Seq2SeqTrainer(
@@ -96,7 +103,7 @@ def main() -> None:
             tokenizer=tokenizer,
         )
     )
-    trainer.train()
+    trainer.train(resume_from_checkpoint=args.resume_from_checkpoint)
     trainer.save_model(str(args.output_dir / "final"))
     tokenizer.save_pretrained(str(args.output_dir / "final"))
 
@@ -226,6 +233,9 @@ def build_training_args_kwargs(
     bf16: bool = False,
     fp16: bool = False,
     gradient_checkpointing: bool = False,
+    save_strategy: str = "no",
+    save_steps: int = 500,
+    save_total_limit: int = 1,
 ) -> dict[str, object]:
     parameters = inspect.signature(training_args_cls.__init__).parameters
     kwargs: dict[str, object] = {
@@ -244,7 +254,9 @@ def build_training_args_kwargs(
         kwargs["evaluation_strategy"] = "epoch"
 
     optional_kwargs = {
-        "save_strategy": "epoch",
+        "save_strategy": save_strategy,
+        "save_steps": save_steps,
+        "save_total_limit": save_total_limit,
         "predict_with_generate": True,
         "seed": seed,
         "report_to": [],

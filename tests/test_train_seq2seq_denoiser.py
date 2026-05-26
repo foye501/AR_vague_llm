@@ -43,11 +43,13 @@ def test_training_args_uses_eval_strategy_when_supported() -> None:
         learning_rate=1e-4,
         seed=7,
         bf16=True,
+        save_strategy="no",
     )
 
     assert kwargs["eval_strategy"] == "epoch"
     assert "evaluation_strategy" not in kwargs
     assert kwargs["gradient_accumulation_steps"] == 4
+    assert kwargs["save_strategy"] == "no"
 
 
 def test_training_args_uses_evaluation_strategy_when_supported() -> None:

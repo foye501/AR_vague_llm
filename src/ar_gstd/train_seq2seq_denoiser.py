@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import inspect
 import json
 from pathlib import Path
 import random
@@ -56,17 +57,14 @@ def main() -> None:
     collator = DataCollatorForSeq2Seq(tokenizer=tokenizer, model=model)
 
     training_args = Seq2SeqTrainingArguments(
-        output_dir=str(args.output_dir),
-        num_train_epochs=args.epochs,
-        per_device_train_batch_size=args.batch_size,
-        per_device_eval_batch_size=args.batch_size,
-        learning_rate=args.learning_rate,
-        evaluation_strategy="epoch",
-        save_strategy="epoch",
-        logging_steps=10,
-        predict_with_generate=True,
-        seed=args.seed,
-        report_to=[],
+        **build_training_args_kwargs(
+            Seq2SeqTrainingArguments,
+            output_dir=args.output_dir,
+            epochs=args.epochs,
+            batch_size=args.batch_size,
+            learning_rate=args.learning_rate,
+            seed=args.seed,
+        )
     )
     trainer = Seq2SeqTrainer(
         model=model,
@@ -88,6 +86,43 @@ def build_denoising_prompt(transcript: str, corrupted_summary: str) -> str:
         f"Noisy structured summary:\n{corrupted_summary}\n\n"
         "Clean structured summary:"
     )
+
+
+def build_training_args_kwargs(
+    training_args_cls,
+    *,
+    output_dir: Path,
+    epochs: float,
+    batch_size: int,
+    learning_rate: float,
+    seed: int,
+) -> dict[str, object]:
+    parameters = inspect.signature(training_args_cls.__init__).parameters
+    kwargs: dict[str, object] = {
+        "output_dir": str(output_dir),
+        "num_train_epochs": epochs,
+        "per_device_train_batch_size": batch_size,
+        "per_device_eval_batch_size": batch_size,
+        "learning_rate": learning_rate,
+        "logging_steps": 10,
+    }
+
+    if "eval_strategy" in parameters:
+        kwargs["eval_strategy"] = "epoch"
+    elif "evaluation_strategy" in parameters:
+        kwargs["evaluation_strategy"] = "epoch"
+
+    optional_kwargs = {
+        "save_strategy": "epoch",
+        "predict_with_generate": True,
+        "seed": seed,
+        "report_to": [],
+    }
+    for key, value in optional_kwargs.items():
+        if key in parameters:
+            kwargs[key] = value
+
+    return kwargs
 
 
 def _require_train_deps() -> None:

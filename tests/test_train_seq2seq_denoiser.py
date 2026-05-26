@@ -39,12 +39,15 @@ def test_training_args_uses_eval_strategy_when_supported() -> None:
         output_dir=Path("out"),
         epochs=1,
         batch_size=2,
+        gradient_accumulation_steps=4,
         learning_rate=1e-4,
         seed=7,
+        bf16=True,
     )
 
     assert kwargs["eval_strategy"] == "epoch"
     assert "evaluation_strategy" not in kwargs
+    assert kwargs["gradient_accumulation_steps"] == 4
 
 
 def test_training_args_uses_evaluation_strategy_when_supported() -> None:
@@ -53,6 +56,7 @@ def test_training_args_uses_evaluation_strategy_when_supported() -> None:
         output_dir=Path("out"),
         epochs=1,
         batch_size=2,
+        gradient_accumulation_steps=1,
         learning_rate=1e-4,
         seed=7,
     )

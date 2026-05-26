@@ -14,7 +14,11 @@ def main() -> None:
     parser.add_argument("--model-name", default="google/flan-t5-small")
     parser.add_argument("--epochs", type=float, default=3)
     parser.add_argument("--batch-size", type=int, default=4)
+    parser.add_argument("--gradient-accumulation-steps", type=int, default=1)
     parser.add_argument("--learning-rate", type=float, default=5e-5)
+    parser.add_argument("--bf16", action="store_true")
+    parser.add_argument("--fp16", action="store_true")
+    parser.add_argument("--gradient-checkpointing", action="store_true")
     parser.add_argument("--eval-ratio", type=float, default=0.1)
     parser.add_argument("--eval-file", type=Path, default=None)
     parser.add_argument("--train-split-output", type=Path, default=None)
@@ -51,6 +55,10 @@ def main() -> None:
 
     tokenizer = AutoTokenizer.from_pretrained(args.model_name)
     model = AutoModelForSeq2SeqLM.from_pretrained(args.model_name)
+    if args.gradient_checkpointing and hasattr(model, "gradient_checkpointing_enable"):
+        model.gradient_checkpointing_enable()
+        if hasattr(model, "config"):
+            model.config.use_cache = False
 
     def preprocess(batch):
         inputs = [build_prompt_from_batch(batch, index) for index in range(len(batch["transcript"]))]
@@ -69,8 +77,12 @@ def main() -> None:
             output_dir=args.output_dir,
             epochs=args.epochs,
             batch_size=args.batch_size,
+            gradient_accumulation_steps=args.gradient_accumulation_steps,
             learning_rate=args.learning_rate,
             seed=args.seed,
+            bf16=args.bf16,
+            fp16=args.fp16,
+            gradient_checkpointing=args.gradient_checkpointing,
         )
     )
     trainer = Seq2SeqTrainer(
@@ -208,8 +220,12 @@ def build_training_args_kwargs(
     output_dir: Path,
     epochs: float,
     batch_size: int,
+    gradient_accumulation_steps: int,
     learning_rate: float,
     seed: int,
+    bf16: bool = False,
+    fp16: bool = False,
+    gradient_checkpointing: bool = False,
 ) -> dict[str, object]:
     parameters = inspect.signature(training_args_cls.__init__).parameters
     kwargs: dict[str, object] = {
@@ -217,6 +233,7 @@ def build_training_args_kwargs(
         "num_train_epochs": epochs,
         "per_device_train_batch_size": batch_size,
         "per_device_eval_batch_size": batch_size,
+        "gradient_accumulation_steps": gradient_accumulation_steps,
         "learning_rate": learning_rate,
         "logging_steps": 10,
     }
@@ -231,6 +248,9 @@ def build_training_args_kwargs(
         "predict_with_generate": True,
         "seed": seed,
         "report_to": [],
+        "bf16": bf16,
+        "fp16": fp16,
+        "gradient_checkpointing": gradient_checkpointing,
     }
     for key, value in optional_kwargs.items():
         if key in parameters:

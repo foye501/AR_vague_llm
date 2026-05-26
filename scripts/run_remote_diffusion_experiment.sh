@@ -7,6 +7,7 @@ cd "$ROOT_DIR"
 export PYTHONPATH="$ROOT_DIR/src${PYTHONPATH:+:$PYTHONPATH}"
 
 TEACHER_MODEL="${TEACHER_MODEL:-Qwen/Qwen2.5-0.5B-Instruct}"
+TEACHER_DTYPE="${TEACHER_DTYPE:-bfloat16}"
 DENOISER_MODEL="${DENOISER_MODEL:-google/flan-t5-small}"
 TOP_K="${TOP_K:-8}"
 DATA_FILE="${DATA_FILE:-artifacts/sql_create_context_subset.jsonl}"
@@ -21,6 +22,21 @@ AR_STRENGTH="${AR_STRENGTH:-0.65}"
 EVAL_RATIO="${EVAL_RATIO:-0.2}"
 EPOCHS="${EPOCHS:-3}"
 BATCH_SIZE="${BATCH_SIZE:-4}"
+GRADIENT_ACCUMULATION_STEPS="${GRADIENT_ACCUMULATION_STEPS:-1}"
+TRAIN_BF16="${TRAIN_BF16:-0}"
+TRAIN_FP16="${TRAIN_FP16:-0}"
+GRADIENT_CHECKPOINTING="${GRADIENT_CHECKPOINTING:-0}"
+
+TRAIN_EXTRA_ARGS=(--gradient-accumulation-steps "$GRADIENT_ACCUMULATION_STEPS")
+if [[ "$TRAIN_BF16" == "1" ]]; then
+  TRAIN_EXTRA_ARGS+=(--bf16)
+fi
+if [[ "$TRAIN_FP16" == "1" ]]; then
+  TRAIN_EXTRA_ARGS+=(--fp16)
+fi
+if [[ "$GRADIENT_CHECKPOINTING" == "1" ]]; then
+  TRAIN_EXTRA_ARGS+=(--gradient-checkpointing)
+fi
 
 python -m ar_gstd.prepare_sql_create_context \
   --dataset "$DATASET_NAME" \
@@ -38,6 +54,7 @@ python -m ar_gstd.train_seq2seq_denoiser \
   --model-name "$DENOISER_MODEL" \
   --epochs "$EPOCHS" \
   --batch-size "$BATCH_SIZE" \
+  "${TRAIN_EXTRA_ARGS[@]}" \
   --eval-ratio "$EVAL_RATIO" \
   --train-split-output artifacts/train_pairs_clean_sft_train.jsonl \
   --eval-split-output artifacts/train_pairs_clean_sft_eval.jsonl
@@ -63,6 +80,7 @@ python -m ar_gstd.build_transition_cache \
   --top-k "$TOP_K" \
   --max-examples "$MAX_EXAMPLES" \
   --max-target-tokens "$MAX_TARGET_TOKENS" \
+  --dtype "$TEACHER_DTYPE" \
   --device auto
 
 python -m ar_gstd.make_fixed_transition_cache \
@@ -105,6 +123,7 @@ python -m ar_gstd.train_seq2seq_denoiser \
   --model-name "$DENOISER_MODEL" \
   --epochs "$EPOCHS" \
   --batch-size "$BATCH_SIZE" \
+  "${TRAIN_EXTRA_ARGS[@]}" \
   --eval-ratio "$EVAL_RATIO" \
   --train-split-output artifacts/train_pairs_diff_absorb_train.jsonl \
   --eval-split-output artifacts/train_pairs_diff_absorb_eval.jsonl
@@ -115,6 +134,7 @@ python -m ar_gstd.train_seq2seq_denoiser \
   --model-name "$DENOISER_MODEL" \
   --epochs "$EPOCHS" \
   --batch-size "$BATCH_SIZE" \
+  "${TRAIN_EXTRA_ARGS[@]}" \
   --eval-ratio "$EVAL_RATIO" \
   --train-split-output artifacts/train_pairs_diff_ar_absorb_train.jsonl \
   --eval-split-output artifacts/train_pairs_diff_ar_absorb_eval.jsonl
@@ -125,6 +145,7 @@ python -m ar_gstd.train_seq2seq_denoiser \
   --model-name "$DENOISER_MODEL" \
   --epochs "$EPOCHS" \
   --batch-size "$BATCH_SIZE" \
+  "${TRAIN_EXTRA_ARGS[@]}" \
   --eval-ratio "$EVAL_RATIO" \
   --train-split-output artifacts/train_pairs_diff_fixed_absorb_train.jsonl \
   --eval-split-output artifacts/train_pairs_diff_fixed_absorb_eval.jsonl

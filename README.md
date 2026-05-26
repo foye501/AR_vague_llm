@@ -130,6 +130,25 @@ TIMESTEPS=1,2,4,6,8,10 \
 bash scripts/run_remote_diffusion_experiment.sh
 ```
 
+A100 40GB run:
+
+```bash
+DATASET_MAX_EXAMPLES=2000 \
+TEACHER_MODEL=Qwen/Qwen2.5-3B-Instruct \
+TEACHER_DTYPE=bfloat16 \
+DENOISER_MODEL=google/flan-t5-large \
+TRAIN_BF16=1 \
+GRADIENT_ACCUMULATION_STEPS=4 \
+GRADIENT_CHECKPOINTING=1 \
+BATCH_SIZE=2 \
+TOP_K=16 \
+NUM_STEPS=10 \
+TIMESTEPS=1,2,4,6,8,10 \
+VARIANTS_PER_TIMESTEP=2 \
+EPOCHS=3 \
+bash scripts/run_remote_diffusion_experiment.sh
+```
+
 This trains:
 
 - `base_zero_shot`: the untouched pretrained student, evaluated with clean source-to-target generation prompts.

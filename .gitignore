@@ -2,3 +2,11 @@
 __pycache__/
 *.py[cod]
 .DS_Store
+.venv/
+.cache/
+wandb/
+runs/
+*.log
+artifacts/*transition_cache.jsonl
+artifacts/train_pairs_*.jsonl
+artifacts/denoiser_*/

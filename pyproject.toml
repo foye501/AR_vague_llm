@@ -11,6 +11,12 @@ dependencies = []
 
 [project.optional-dependencies]
 dev = ["pytest>=7"]
+train = [
+  "accelerate>=0.29",
+  "datasets>=2.18",
+  "torch>=2.1",
+  "transformers>=4.40",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]

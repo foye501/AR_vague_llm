@@ -1,14 +1,29 @@
-# AR-Guided Semantic Transition Diffusion Prototype
+# AR-Guided Semantic Transition Diffusion
 
-This repository starts a small experimental scaffold for AR-guided semantic corruption in structured language generation.
+This repository starts an experiment path for AR-guided semantic transition corruption in structured language generation.
 
 Working hypothesis:
 
 > Mask-only corruption teaches a model to fill blanks, while real LLM errors are often fluent, plausible, and semantically wrong. AR-guided top-k transition corruption should create better denoising training data for structured outputs.
 
+The main method should be a conditional sparse transition cache from an autoregressive teacher:
+
+```text
+q_t(y_t[p] = j | y_0[p] = i, c_p)
+  = (1 - beta_t) 1[j = i] + beta_t S_AR_topk(j | c_p)
+```
+
+where `c_p` is the transcript plus the clean summary prefix before position `p`. In implementation, `S_AR_topk` is not a dense vocabulary matrix. It is a cached sparse row with only top-k token ids and probabilities per example and target position.
+
+Use the fixed top-k sparse matrix as an ablation, not as the main method. Fixed top-k removes context dependence, which is the main research claim.
+
 ## What Is Here
 
 - `data/meeting_summaries_seed.jsonl`: 20 small transcript/clean-summary examples.
+- `src/ar_gstd/build_transition_cache.py`: builds conditional AR top-k sparse transition rows from a teacher LM.
+- `src/ar_gstd/make_fixed_transition_cache.py`: converts conditional rows into a fixed sparse top-k baseline.
+- `src/ar_gstd/materialize_training_data.py`: samples noisy denoising pairs from a transition cache.
+- `src/ar_gstd/train_seq2seq_denoiser.py`: trains a first seq2seq denoiser on those pairs.
 - `src/ar_gstd/corruption.py`: four corruption strategies:
   - `mask`
   - `random`
@@ -17,8 +32,6 @@ Working hypothesis:
 - `src/ar_gstd/generate_corruptions.py`: CLI that creates corrupted variants from seed examples.
 - `src/ar_gstd/evaluate_corruptions.py`: CLI that reports basic corruption sanity metrics.
 - `tests/test_corruption.py`: smoke tests for deterministic and structurally valid corruption.
-
-The first goal is not to train a diffusion model yet. The first goal is to inspect whether AR-guided semantic noise is more realistic than mask/random/static-neighbor noise.
 
 ## Quick Start
 
@@ -48,9 +61,9 @@ Or install the package once:
 python -m pip install -e .
 ```
 
-## Remote Server Run
+## Remote Server Training Run
 
-On a remote server with Python 3.10+:
+On a remote server with Python 3.10+ and GPU access:
 
 ```bash
 git clone <your-repo-url> Diffusion_llm
@@ -58,8 +71,70 @@ cd Diffusion_llm
 python -m venv .venv
 source .venv/bin/activate
 python -m pip install -U pip
-python -m pip install -e ".[dev]"
-bash scripts/run_seed_experiment.sh
+python -m pip install -e ".[train,dev]"
+bash scripts/run_remote_ar_transition_experiment.sh
+```
+
+Useful overrides:
+
+```bash
+TEACHER_MODEL=Qwen/Qwen2.5-1.5B-Instruct \
+DENOISER_MODEL=google/flan-t5-base \
+TOP_K=16 \
+BETA=0.35 \
+VARIANTS_PER_EXAMPLE=16 \
+bash scripts/run_remote_ar_transition_experiment.sh
+```
+
+This produces:
+
+- `artifacts/ar_transition_cache.jsonl`: conditional sparse transition cache.
+- `artifacts/fixed_transition_cache.jsonl`: fixed sparse baseline cache.
+- `artifacts/train_pairs_ar.jsonl`: sampled AR-top-k denoising pairs.
+- `artifacts/train_pairs_fixed.jsonl`: sampled fixed-top-k denoising pairs.
+- `artifacts/denoiser_ar/final`: first trained denoising model.
+
+## Manual Pipeline
+
+Build the conditional AR transition cache:
+
+```bash
+python -m ar_gstd.build_transition_cache \
+  --input data/meeting_summaries_seed.jsonl \
+  --output artifacts/ar_transition_cache.jsonl \
+  --teacher-model Qwen/Qwen2.5-0.5B-Instruct \
+  --top-k 8 \
+  --device auto
+```
+
+Create the fixed sparse baseline from the same rows:
+
+```bash
+python -m ar_gstd.make_fixed_transition_cache \
+  --input artifacts/ar_transition_cache.jsonl \
+  --output artifacts/fixed_transition_cache.jsonl \
+  --top-k 8
+```
+
+Sample noisy denoising pairs:
+
+```bash
+python -m ar_gstd.materialize_training_data \
+  --cache artifacts/ar_transition_cache.jsonl \
+  --output artifacts/train_pairs_ar.jsonl \
+  --beta 0.35 \
+  --variants-per-example 8
+```
+
+Train a first denoiser:
+
+```bash
+python -m ar_gstd.train_seq2seq_denoiser \
+  --train-file artifacts/train_pairs_ar.jsonl \
+  --output-dir artifacts/denoiser_ar \
+  --model-name google/flan-t5-small \
+  --epochs 3 \
+  --batch-size 4
 ```
 
 If the server cannot access your Git provider, create a bundle locally and copy it:
@@ -77,19 +152,14 @@ cd Diffusion_llm
 python -m venv .venv
 source .venv/bin/activate
 python -m pip install -U pip
-python -m pip install -e ".[dev]"
-bash scripts/run_seed_experiment.sh
+python -m pip install -e ".[train,dev]"
+bash scripts/run_remote_ar_transition_experiment.sh
 ```
 
-The runner writes:
+## Publishable Experiment Plan
 
-- `artifacts/corruptions.jsonl`
-- `artifacts/corruption_table.md`
-- `artifacts/corruption_metrics.md`
-
-## Next Experiments
-
-1. Replace the rule-based `ar_guided` strategy with a real teacher model that proposes top-k span replacements.
-2. Add a real-error evaluation set where an AR model generates flawed summaries from transcripts.
-3. Train equal-size denoisers on mask, random, embedding, and AR-guided corruptions.
-4. Evaluate decision-status accuracy, owner/action/deadline recovery, section validity, and factual repair.
+1. Train equal-size denoisers on mask, random, embedding, fixed top-k, and conditional AR top-k corruptions.
+2. Evaluate on synthetic corruptions and real flawed AR summaries.
+3. Report decision-status accuracy, owner/action/deadline recovery, section validity, and factual repair.
+4. Add ablations over `top_k`, `beta`, teacher size, and token-level versus span-level corruption.
+5. After the denoising effect is proven, port the same transition cache into a discrete diffusion objective.

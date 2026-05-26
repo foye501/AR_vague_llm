@@ -24,6 +24,7 @@ def main() -> None:
     parser.add_argument("--batch-size", type=int, default=4)
     parser.add_argument("--max-source-length", type=int, default=768)
     parser.add_argument("--max-new-tokens", type=int, default=256)
+    parser.add_argument("--only-timestep", type=int, default=None)
     parser.add_argument("--device", default="auto", choices=("auto", "cuda", "mps", "cpu"))
     args = parser.parse_args()
 
@@ -32,6 +33,8 @@ def main() -> None:
     from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
 
     rows = [json.loads(line) for line in args.eval_file.read_text(encoding="utf-8").splitlines() if line.strip()]
+    if args.only_timestep is not None:
+        rows = [row for row in rows if int(row.get("timestep", -1)) == args.only_timestep]
     if not rows:
         raise SystemExit(f"No rows found in {args.eval_file}")
 
@@ -44,7 +47,16 @@ def main() -> None:
     predictions: list[dict[str, str]] = []
     for start in range(0, len(rows), args.batch_size):
         batch = rows[start : start + args.batch_size]
-        prompts = [build_denoising_prompt(row["transcript"], row["corrupted_summary"]) for row in batch]
+        prompts = [
+            build_denoising_prompt(
+                row["transcript"],
+                row["corrupted_summary"],
+                timestep=row.get("timestep"),
+                num_steps=row.get("num_steps"),
+                noise_kind=row.get("noise_kind") or row.get("strategy"),
+            )
+            for row in batch
+        ]
         encoded = tokenizer(
             prompts,
             return_tensors="pt",
@@ -60,6 +72,9 @@ def main() -> None:
                 {
                     "id": row["id"],
                     "strategy": row.get("strategy", ""),
+                    "noise_kind": row.get("noise_kind", ""),
+                    "timestep": row.get("timestep", ""),
+                    "num_steps": row.get("num_steps", ""),
                     "transcript": row["transcript"],
                     "corrupted_summary": row["corrupted_summary"],
                     "prediction": prediction,

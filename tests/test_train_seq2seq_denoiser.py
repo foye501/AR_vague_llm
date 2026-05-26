@@ -1,6 +1,11 @@
 from pathlib import Path
 
-from ar_gstd.train_seq2seq_denoiser import build_trainer_kwargs, build_training_args_kwargs, split_rows_by_example_id
+from ar_gstd.train_seq2seq_denoiser import (
+    build_denoising_prompt,
+    build_trainer_kwargs,
+    build_training_args_kwargs,
+    split_rows_by_example_id,
+)
 
 
 class NewTrainingArgs:
@@ -120,3 +125,16 @@ def test_split_rows_by_example_id_keeps_variants_together() -> None:
     assert train_ids
     assert eval_ids
     assert train_ids.isdisjoint(eval_ids)
+
+
+def test_prompt_includes_diffusion_metadata_when_present() -> None:
+    prompt = build_denoising_prompt(
+        "Question: q",
+        "[MASK] [MASK]",
+        timestep=10,
+        num_steps=10,
+        noise_kind="ar_absorb",
+    )
+
+    assert "Diffusion timestep: 10/10" in prompt
+    assert "Noise process: ar_absorb" in prompt

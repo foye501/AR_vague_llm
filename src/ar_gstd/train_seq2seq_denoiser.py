@@ -53,10 +53,7 @@ def main() -> None:
     model = AutoModelForSeq2SeqLM.from_pretrained(args.model_name)
 
     def preprocess(batch):
-        inputs = [
-            build_denoising_prompt(transcript, corrupted)
-            for transcript, corrupted in zip(batch["transcript"], batch["corrupted_summary"], strict=True)
-        ]
+        inputs = [build_prompt_from_batch(batch, index) for index in range(len(batch["transcript"]))]
         model_inputs = tokenizer(inputs, max_length=args.max_source_length, truncation=True)
         labels = tokenizer(text_target=batch["clean_summary"], max_length=args.max_target_length, truncation=True)
         model_inputs["labels"] = labels["input_ids"]
@@ -92,13 +89,45 @@ def main() -> None:
     tokenizer.save_pretrained(str(args.output_dir / "final"))
 
 
-def build_denoising_prompt(transcript: str, corrupted_summary: str) -> str:
+def build_prompt_from_batch(batch: dict[str, list], index: int) -> str:
+    return build_denoising_prompt(
+        batch["transcript"][index],
+        batch["corrupted_summary"][index],
+        timestep=_batch_value(batch, "timestep", index),
+        num_steps=_batch_value(batch, "num_steps", index),
+        noise_kind=_batch_value(batch, "noise_kind", index) or _batch_value(batch, "strategy", index),
+    )
+
+
+def build_denoising_prompt(
+    transcript: str,
+    corrupted_summary: str,
+    *,
+    timestep: object | None = None,
+    num_steps: object | None = None,
+    noise_kind: object | None = None,
+) -> str:
+    metadata = ""
+    if timestep is not None and num_steps is not None:
+        metadata += f"Diffusion timestep: {timestep}/{num_steps}\n"
+    if noise_kind:
+        metadata += f"Noise process: {noise_kind}\n"
+    if metadata:
+        metadata = metadata + "\n"
+
     return (
         "Repair the noisy target output using the source context.\n\n"
+        f"{metadata}"
         f"Source context:\n{transcript}\n\n"
         f"Noisy target output:\n{corrupted_summary}\n\n"
         "Clean target output:"
     )
+
+
+def _batch_value(batch: dict[str, list], key: str, index: int) -> object | None:
+    if key not in batch:
+        return None
+    return batch[key][index]
 
 
 def split_rows_by_example_id(

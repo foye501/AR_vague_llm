@@ -1,0 +1,135 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT_DIR"
+
+export PYTHONPATH="$ROOT_DIR/src${PYTHONPATH:+:$PYTHONPATH}"
+
+TEACHER_MODEL="${TEACHER_MODEL:-Qwen/Qwen2.5-0.5B-Instruct}"
+DENOISER_MODEL="${DENOISER_MODEL:-google/flan-t5-small}"
+TOP_K="${TOP_K:-8}"
+DATA_FILE="${DATA_FILE:-artifacts/sql_create_context_subset.jsonl}"
+DATASET_NAME="${DATASET_NAME:-b-mc2/sql-create-context}"
+DATASET_MAX_EXAMPLES="${DATASET_MAX_EXAMPLES:-200}"
+MAX_EXAMPLES="${MAX_EXAMPLES:-0}"
+MAX_TARGET_TOKENS="${MAX_TARGET_TOKENS:-160}"
+NUM_STEPS="${NUM_STEPS:-10}"
+TIMESTEPS="${TIMESTEPS:-1,2,4,6,8,10}"
+VARIANTS_PER_TIMESTEP="${VARIANTS_PER_TIMESTEP:-1}"
+AR_STRENGTH="${AR_STRENGTH:-0.65}"
+EVAL_RATIO="${EVAL_RATIO:-0.2}"
+EPOCHS="${EPOCHS:-3}"
+BATCH_SIZE="${BATCH_SIZE:-4}"
+
+python -m ar_gstd.prepare_sql_create_context \
+  --dataset "$DATASET_NAME" \
+  --output "$DATA_FILE" \
+  --max-examples "$DATASET_MAX_EXAMPLES" \
+  --seed 7
+
+python -m ar_gstd.build_transition_cache \
+  --input "$DATA_FILE" \
+  --output artifacts/ar_transition_cache.jsonl \
+  --teacher-model "$TEACHER_MODEL" \
+  --top-k "$TOP_K" \
+  --max-examples "$MAX_EXAMPLES" \
+  --max-target-tokens "$MAX_TARGET_TOKENS" \
+  --device auto
+
+python -m ar_gstd.make_fixed_transition_cache \
+  --input artifacts/ar_transition_cache.jsonl \
+  --output artifacts/fixed_transition_cache.jsonl \
+  --top-k "$TOP_K"
+
+python -m ar_gstd.materialize_diffusion_training_data \
+  --cache artifacts/ar_transition_cache.jsonl \
+  --output artifacts/train_pairs_diff_absorb.jsonl \
+  --noise-kind absorbing \
+  --num-steps "$NUM_STEPS" \
+  --timesteps "$TIMESTEPS" \
+  --variants-per-timestep "$VARIANTS_PER_TIMESTEP" \
+  --seed 7
+
+python -m ar_gstd.materialize_diffusion_training_data \
+  --cache artifacts/ar_transition_cache.jsonl \
+  --output artifacts/train_pairs_diff_ar_absorb.jsonl \
+  --noise-kind ar_absorb \
+  --num-steps "$NUM_STEPS" \
+  --timesteps "$TIMESTEPS" \
+  --variants-per-timestep "$VARIANTS_PER_TIMESTEP" \
+  --ar-strength "$AR_STRENGTH" \
+  --seed 7
+
+python -m ar_gstd.materialize_diffusion_training_data \
+  --cache artifacts/fixed_transition_cache.jsonl \
+  --output artifacts/train_pairs_diff_fixed_absorb.jsonl \
+  --noise-kind ar_absorb \
+  --num-steps "$NUM_STEPS" \
+  --timesteps "$TIMESTEPS" \
+  --variants-per-timestep "$VARIANTS_PER_TIMESTEP" \
+  --ar-strength "$AR_STRENGTH" \
+  --seed 7
+
+python -m ar_gstd.train_seq2seq_denoiser \
+  --train-file artifacts/train_pairs_diff_absorb.jsonl \
+  --output-dir artifacts/denoiser_diff_absorb \
+  --model-name "$DENOISER_MODEL" \
+  --epochs "$EPOCHS" \
+  --batch-size "$BATCH_SIZE" \
+  --eval-ratio "$EVAL_RATIO" \
+  --train-split-output artifacts/train_pairs_diff_absorb_train.jsonl \
+  --eval-split-output artifacts/train_pairs_diff_absorb_eval.jsonl
+
+python -m ar_gstd.train_seq2seq_denoiser \
+  --train-file artifacts/train_pairs_diff_ar_absorb.jsonl \
+  --output-dir artifacts/denoiser_diff_ar_absorb \
+  --model-name "$DENOISER_MODEL" \
+  --epochs "$EPOCHS" \
+  --batch-size "$BATCH_SIZE" \
+  --eval-ratio "$EVAL_RATIO" \
+  --train-split-output artifacts/train_pairs_diff_ar_absorb_train.jsonl \
+  --eval-split-output artifacts/train_pairs_diff_ar_absorb_eval.jsonl
+
+python -m ar_gstd.train_seq2seq_denoiser \
+  --train-file artifacts/train_pairs_diff_fixed_absorb.jsonl \
+  --output-dir artifacts/denoiser_diff_fixed_absorb \
+  --model-name "$DENOISER_MODEL" \
+  --epochs "$EPOCHS" \
+  --batch-size "$BATCH_SIZE" \
+  --eval-ratio "$EVAL_RATIO" \
+  --train-split-output artifacts/train_pairs_diff_fixed_absorb_train.jsonl \
+  --eval-split-output artifacts/train_pairs_diff_fixed_absorb_eval.jsonl
+
+python -m ar_gstd.evaluate_denoiser \
+  --model-dir artifacts/denoiser_diff_absorb/final \
+  --eval-file artifacts/train_pairs_diff_absorb_eval.jsonl \
+  --only-timestep "$NUM_STEPS" \
+  --output-predictions artifacts/predictions_diff_absorb_tT.jsonl \
+  --output-metrics artifacts/metrics_diff_absorb_tT.json \
+  --batch-size "$BATCH_SIZE"
+
+python -m ar_gstd.evaluate_denoiser \
+  --model-dir artifacts/denoiser_diff_ar_absorb/final \
+  --eval-file artifacts/train_pairs_diff_ar_absorb_eval.jsonl \
+  --only-timestep "$NUM_STEPS" \
+  --output-predictions artifacts/predictions_diff_ar_absorb_tT.jsonl \
+  --output-metrics artifacts/metrics_diff_ar_absorb_tT.json \
+  --batch-size "$BATCH_SIZE"
+
+python -m ar_gstd.evaluate_denoiser \
+  --model-dir artifacts/denoiser_diff_fixed_absorb/final \
+  --eval-file artifacts/train_pairs_diff_fixed_absorb_eval.jsonl \
+  --only-timestep "$NUM_STEPS" \
+  --output-predictions artifacts/predictions_diff_fixed_absorb_tT.jsonl \
+  --output-metrics artifacts/metrics_diff_fixed_absorb_tT.json \
+  --batch-size "$BATCH_SIZE"
+
+python -m ar_gstd.summarize_metrics \
+  --output artifacts/metrics_diffusion_tT_summary.md \
+  artifacts/metrics_diff_absorb_tT.json \
+  artifacts/metrics_diff_ar_absorb_tT.json \
+  artifacts/metrics_diff_fixed_absorb_tT.json
+
+printf '\nFinished diffusion-style all-mask endpoint run.\n'
+printf 'Main comparison: artifacts/metrics_diffusion_tT_summary.md\n'

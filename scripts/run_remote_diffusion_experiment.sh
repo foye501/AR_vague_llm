@@ -29,6 +29,10 @@ GRADIENT_CHECKPOINTING="${GRADIENT_CHECKPOINTING:-0}"
 SAVE_STRATEGY="${SAVE_STRATEGY:-no}"
 SAVE_TOTAL_LIMIT="${SAVE_TOTAL_LIMIT:-1}"
 SAVE_STEPS="${SAVE_STEPS:-1000}"
+RESUME_CLEAN_SFT="${RESUME_CLEAN_SFT:-}"
+RESUME_DIFF_ABSORB="${RESUME_DIFF_ABSORB:-}"
+RESUME_DIFF_AR_ABSORB="${RESUME_DIFF_AR_ABSORB:-}"
+RESUME_DIFF_FIXED_ABSORB="${RESUME_DIFF_FIXED_ABSORB:-}"
 
 TRAIN_EXTRA_ARGS=(
   --gradient-accumulation-steps "$GRADIENT_ACCUMULATION_STEPS"
@@ -45,6 +49,13 @@ fi
 if [[ "$GRADIENT_CHECKPOINTING" == "1" ]]; then
   TRAIN_EXTRA_ARGS+=(--gradient-checkpointing)
 fi
+
+resume_args() {
+  local checkpoint_path="$1"
+  if [[ -n "$checkpoint_path" ]]; then
+    printf '%s\n' --resume-from-checkpoint "$checkpoint_path"
+  fi
+}
 
 python -m ar_gstd.prepare_sql_create_context \
   --dataset "$DATASET_NAME" \
@@ -63,6 +74,7 @@ python -m ar_gstd.train_seq2seq_denoiser \
   --epochs "$EPOCHS" \
   --batch-size "$BATCH_SIZE" \
   "${TRAIN_EXTRA_ARGS[@]}" \
+  $(resume_args "$RESUME_CLEAN_SFT") \
   --eval-ratio "$EVAL_RATIO" \
   --train-split-output artifacts/train_pairs_clean_sft_train.jsonl \
   --eval-split-output artifacts/train_pairs_clean_sft_eval.jsonl
@@ -132,6 +144,7 @@ python -m ar_gstd.train_seq2seq_denoiser \
   --epochs "$EPOCHS" \
   --batch-size "$BATCH_SIZE" \
   "${TRAIN_EXTRA_ARGS[@]}" \
+  $(resume_args "$RESUME_DIFF_ABSORB") \
   --eval-ratio "$EVAL_RATIO" \
   --train-split-output artifacts/train_pairs_diff_absorb_train.jsonl \
   --eval-split-output artifacts/train_pairs_diff_absorb_eval.jsonl
@@ -143,6 +156,7 @@ python -m ar_gstd.train_seq2seq_denoiser \
   --epochs "$EPOCHS" \
   --batch-size "$BATCH_SIZE" \
   "${TRAIN_EXTRA_ARGS[@]}" \
+  $(resume_args "$RESUME_DIFF_AR_ABSORB") \
   --eval-ratio "$EVAL_RATIO" \
   --train-split-output artifacts/train_pairs_diff_ar_absorb_train.jsonl \
   --eval-split-output artifacts/train_pairs_diff_ar_absorb_eval.jsonl
@@ -154,6 +168,7 @@ python -m ar_gstd.train_seq2seq_denoiser \
   --epochs "$EPOCHS" \
   --batch-size "$BATCH_SIZE" \
   "${TRAIN_EXTRA_ARGS[@]}" \
+  $(resume_args "$RESUME_DIFF_FIXED_ABSORB") \
   --eval-ratio "$EVAL_RATIO" \
   --train-split-output artifacts/train_pairs_diff_fixed_absorb_train.jsonl \
   --eval-split-output artifacts/train_pairs_diff_fixed_absorb_eval.jsonl

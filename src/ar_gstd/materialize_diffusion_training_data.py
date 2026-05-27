@@ -19,6 +19,7 @@ def main() -> None:
     parser.add_argument("--ar-strength", type=float, default=0.65)
     parser.add_argument("--mask-power", type=float, default=1.0)
     parser.add_argument("--mask-token", default="[MASK]")
+    parser.add_argument("--pad-token", default="[PAD]")
     parser.add_argument("--seed", type=int, default=0)
     args = parser.parse_args()
 
@@ -29,6 +30,7 @@ def main() -> None:
     if not caches:
         raise SystemExit(f"No caches found in {args.cache}")
     tokenizer = AutoTokenizer.from_pretrained(caches[0].tokenizer_name, trust_remote_code=True)
+    add_diffusion_special_tokens(tokenizer, mask_token=args.mask_token, pad_token=args.pad_token)
     timesteps = parse_timesteps(args.timesteps, args.num_steps)
 
     rows: list[dict[str, object]] = []
@@ -36,7 +38,7 @@ def main() -> None:
         for timestep in timesteps:
             for variant_index in range(args.variants_per_timestep):
                 sample_seed = args.seed + example_index * 100_003 + timestep * 101 + variant_index
-                corrupted = corrupt_diffusion_state(
+                corrupted_token_ids = corrupt_diffusion_token_ids(
                     cache,
                     tokenizer=tokenizer,
                     timestep=timestep,
@@ -47,6 +49,7 @@ def main() -> None:
                     ar_strength=args.ar_strength,
                     mask_power=args.mask_power,
                 )
+                corrupted = decode_diffusion_token_ids(tokenizer, corrupted_token_ids, mask_token=args.mask_token)
                 rows.append(
                     {
                         "id": f"{cache.example_id}#t{timestep}#v{variant_index}",
@@ -57,6 +60,8 @@ def main() -> None:
                         "transcript": cache.transcript,
                         "corrupted_summary": corrupted,
                         "clean_summary": cache.clean_summary,
+                        "corrupted_token_ids": corrupted_token_ids,
+                        "clean_token_ids": list(cache.target_token_ids),
                     }
                 )
 
@@ -77,10 +82,38 @@ def corrupt_diffusion_state(
     ar_strength: float,
     mask_power: float,
 ) -> str:
+    corrupted_token_ids = corrupt_diffusion_token_ids(
+        cache,
+        tokenizer=tokenizer,
+        timestep=timestep,
+        num_steps=num_steps,
+        noise_kind=noise_kind,
+        seed=seed,
+        mask_token=mask_token,
+        ar_strength=ar_strength,
+        mask_power=mask_power,
+    )
+    return decode_diffusion_token_ids(tokenizer, corrupted_token_ids, mask_token=mask_token)
+
+
+def corrupt_diffusion_token_ids(
+    cache: TransitionCache,
+    *,
+    tokenizer,
+    timestep: int,
+    num_steps: int,
+    noise_kind: str,
+    seed: int,
+    mask_token: str,
+    ar_strength: float,
+    mask_power: float,
+) -> list[int]:
     if not 0 <= timestep <= num_steps:
         raise ValueError("timestep must be between 0 and num_steps")
     if num_steps <= 0:
         raise ValueError("num_steps must be positive")
+    if tokenizer.mask_token_id is None:
+        raise ValueError("tokenizer must define a mask token before corruption")
 
     rng = random.Random(seed)
     mask_prob, ar_prob = diffusion_noise_probs(
@@ -91,21 +124,32 @@ def corrupt_diffusion_state(
         mask_power=mask_power,
     )
     rows_by_position = {row.position: row for row in cache.rows}
-    pieces: list[str] = []
+    corrupted_token_ids: list[int] = []
 
     for position, source_token_id in enumerate(cache.target_token_ids):
         draw = rng.random()
         if draw < mask_prob:
-            pieces.append(mask_token)
+            corrupted_token_ids.append(int(tokenizer.mask_token_id))
             continue
         if draw < mask_prob + ar_prob:
             row = rows_by_position.get(position)
             if row is not None and row.top_token_ids:
-                pieces.append(tokenizer.decode([sample_from_sparse_row(row, rng)], skip_special_tokens=True))
+                corrupted_token_ids.append(int(sample_from_sparse_row(row, rng)))
                 continue
-        pieces.append(tokenizer.decode([source_token_id], skip_special_tokens=True))
+        corrupted_token_ids.append(int(source_token_id))
 
-    return compact_mask_text("".join(pieces), mask_token=mask_token)
+    return corrupted_token_ids
+
+
+def decode_diffusion_token_ids(tokenizer, token_ids: list[int], *, mask_token: str) -> str:
+    return compact_mask_text(tokenizer.decode(token_ids, skip_special_tokens=False), mask_token=mask_token)
+
+
+def add_diffusion_special_tokens(tokenizer, *, mask_token: str, pad_token: str) -> None:
+    if tokenizer.pad_token_id is None:
+        tokenizer.add_special_tokens({"pad_token": pad_token})
+    if tokenizer.mask_token_id is None:
+        tokenizer.add_special_tokens({"mask_token": mask_token})
 
 
 def diffusion_noise_probs(

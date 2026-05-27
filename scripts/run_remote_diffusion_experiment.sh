@@ -108,6 +108,12 @@ python -m ar_gstd.make_fixed_transition_cache \
   --output artifacts/fixed_transition_cache.jsonl \
   --top-k "$TOP_K"
 
+python -m ar_gstd.analyze_transition_cache \
+  --conditional-cache artifacts/ar_transition_cache.jsonl \
+  --fixed-cache artifacts/fixed_transition_cache.jsonl \
+  --output-json artifacts/transition_cache_analysis.json \
+  --output-markdown artifacts/transition_cache_analysis.md
+
 python -m ar_gstd.materialize_diffusion_training_data \
   --cache artifacts/ar_transition_cache.jsonl \
   --output artifacts/train_pairs_diff_absorb.jsonl \
@@ -197,6 +203,32 @@ python -m ar_gstd.evaluate_denoiser \
   --output-metrics artifacts/metrics_diff_fixed_absorb_tT.json \
   --batch-size "$BATCH_SIZE"
 
+python -m ar_gstd.filter_eval_by_category \
+  --input artifacts/train_pairs_diff_ar_absorb_eval.jsonl \
+  --output artifacts/train_pairs_diff_ar_absorb_eval_schema.jsonl \
+  --category schema_identifier
+
+python -m ar_gstd.filter_eval_by_category \
+  --input artifacts/train_pairs_diff_fixed_absorb_eval.jsonl \
+  --output artifacts/train_pairs_diff_fixed_absorb_eval_schema.jsonl \
+  --category schema_identifier
+
+python -m ar_gstd.evaluate_denoiser \
+  --model-dir artifacts/denoiser_diff_ar_absorb/final \
+  --eval-file artifacts/train_pairs_diff_ar_absorb_eval_schema.jsonl \
+  --only-timestep "$NUM_STEPS" \
+  --output-predictions artifacts/predictions_diff_ar_absorb_schema_tT.jsonl \
+  --output-metrics artifacts/metrics_diff_ar_absorb_schema_tT.json \
+  --batch-size "$BATCH_SIZE"
+
+python -m ar_gstd.evaluate_denoiser \
+  --model-dir artifacts/denoiser_diff_fixed_absorb/final \
+  --eval-file artifacts/train_pairs_diff_fixed_absorb_eval_schema.jsonl \
+  --only-timestep "$NUM_STEPS" \
+  --output-predictions artifacts/predictions_diff_fixed_absorb_schema_tT.jsonl \
+  --output-metrics artifacts/metrics_diff_fixed_absorb_schema_tT.json \
+  --batch-size "$BATCH_SIZE"
+
 python -m ar_gstd.summarize_metrics \
   --output artifacts/metrics_diffusion_tT_summary.md \
   artifacts/metrics_diff_absorb_tT.json \
@@ -210,6 +242,11 @@ python -m ar_gstd.summarize_metrics \
   artifacts/metrics_diff_absorb_tT.json \
   artifacts/metrics_diff_ar_absorb_tT.json \
   artifacts/metrics_diff_fixed_absorb_tT.json
+
+python -m ar_gstd.summarize_metrics \
+  --output artifacts/metrics_schema_focus_summary.md \
+  artifacts/metrics_diff_ar_absorb_schema_tT.json \
+  artifacts/metrics_diff_fixed_absorb_schema_tT.json
 
 printf '\nFinished diffusion-style all-mask endpoint run.\n'
 printf 'Main comparison: artifacts/metrics_diffusion_tT_summary.md\n'

@@ -166,6 +166,22 @@ cat artifacts/metrics_diffusion_tT_summary.md
 
 That table evaluates all models at `t=T`, where the input is total `[MASK]` noise. If `diff_ar_absorb_tT` beats `diff_absorb_tT` and `diff_fixed_absorb_tT`, then the result supports the claim that conditional AR logits improve diffusion training without changing the all-mask endpoint.
 
+Before training, inspect whether the teacher transitions are actually context-aware:
+
+```bash
+cat artifacts/transition_cache_analysis.md
+```
+
+This compares conditional AR rows against fixed top-k rows by token category. The useful diagnostic is whether conditional AR has higher gold-token top-k coverage/probability for schema identifiers and literals, where context should matter most.
+
+The runner also writes:
+
+```bash
+cat artifacts/metrics_schema_focus_summary.md
+```
+
+This narrows evaluation to examples whose target SQL uses schema identifiers, a slice where conditional AR should have the best chance to differ from fixed top-k.
+
 Also inspect:
 
 ```bash

@@ -211,6 +211,24 @@ python -m ar_gstd.inspect_tokenizers \
 
 If the teacher-to-student single-token projection ratio is low, treat the projected experiment as a weak text-fragment proxy. For the cleanest publication setting, train the diffusion student in the teacher tokenizer space.
 
+Same-tokenizer scratch run:
+
+```bash
+TEACHER_MODEL=Qwen/Qwen2.5-3B-Instruct \
+DENOISER_MODEL=google/flan-t5-large \
+DENOISER_TOKENIZER_NAME=Qwen/Qwen2.5-3B-Instruct \
+STUDENT_TOKENIZER_NAME=Qwen/Qwen2.5-3B-Instruct \
+TRAIN_FROM_SCRATCH=1 \
+ADD_MASK_TOKEN=1 \
+TRAIN_BF16=1 \
+DATASET_MAX_EXAMPLES=10000 \
+BATCH_SIZE=16 \
+EPOCHS=3 \
+scripts/run_remote_diffusion_experiment.sh
+```
+
+Here `DENOISER_MODEL` supplies the seq2seq architecture/config, while `DENOISER_TOKENIZER_NAME` supplies the discrete vocabulary used by training and evaluation. This removes the Qwen-to-T5 token projection confound; the saved student checkpoint contains the Qwen tokenizer plus added `[PAD]` and `[MASK]` special tokens.
+
 ## Manual Pipeline
 
 Build the conditional AR transition cache:

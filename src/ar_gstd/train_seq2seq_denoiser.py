@@ -12,6 +12,11 @@ def main() -> None:
     parser.add_argument("--train-file", type=Path, default=Path("artifacts/train_pairs_ar.jsonl"))
     parser.add_argument("--output-dir", type=Path, default=Path("artifacts/denoiser_ar"))
     parser.add_argument("--model-name", default="google/flan-t5-small")
+    parser.add_argument("--tokenizer-name", default="", help="Defaults to --model-name.")
+    parser.add_argument("--from-scratch", action="store_true", help="Initialize the seq2seq model from config instead of pretrained weights.")
+    parser.add_argument("--add-mask-token", action="store_true", help="Add --mask-token as a tokenizer mask token before training.")
+    parser.add_argument("--mask-token", default="[MASK]")
+    parser.add_argument("--pad-token", default="[PAD]")
     parser.add_argument("--epochs", type=float, default=3)
     parser.add_argument("--batch-size", type=int, default=4)
     parser.add_argument("--gradient-accumulation-steps", type=int, default=1)
@@ -35,6 +40,7 @@ def main() -> None:
     _require_train_deps()
     from datasets import Dataset
     from transformers import (
+        AutoConfig,
         AutoModelForSeq2SeqLM,
         AutoTokenizer,
         DataCollatorForSeq2Seq,
@@ -57,8 +63,20 @@ def main() -> None:
     if args.eval_split_output:
         write_jsonl(args.eval_split_output, eval_rows)
 
-    tokenizer = AutoTokenizer.from_pretrained(args.model_name)
-    model = AutoModelForSeq2SeqLM.from_pretrained(args.model_name)
+    tokenizer = load_tokenizer(
+        AutoTokenizer,
+        tokenizer_name=args.tokenizer_name or args.model_name,
+        add_mask_token=args.add_mask_token,
+        mask_token=args.mask_token,
+        pad_token=args.pad_token,
+    )
+    model = load_seq2seq_model(
+        AutoConfig=AutoConfig,
+        AutoModelForSeq2SeqLM=AutoModelForSeq2SeqLM,
+        model_name=args.model_name,
+        tokenizer=tokenizer,
+        from_scratch=args.from_scratch,
+    )
     if args.gradient_checkpointing and hasattr(model, "gradient_checkpointing_enable"):
         model.gradient_checkpointing_enable()
         if hasattr(model, "config"):
@@ -106,6 +124,61 @@ def main() -> None:
     trainer.train(resume_from_checkpoint=args.resume_from_checkpoint)
     trainer.save_model(str(args.output_dir / "final"))
     tokenizer.save_pretrained(str(args.output_dir / "final"))
+
+
+def load_tokenizer(
+    AutoTokenizer,
+    *,
+    tokenizer_name: str,
+    add_mask_token: bool,
+    mask_token: str,
+    pad_token: str,
+):
+    tokenizer = AutoTokenizer.from_pretrained(tokenizer_name, trust_remote_code=True)
+    if tokenizer.pad_token_id is None:
+        tokenizer.add_special_tokens({"pad_token": pad_token})
+    if add_mask_token and tokenizer.mask_token_id is None:
+        tokenizer.add_special_tokens({"mask_token": mask_token})
+    return tokenizer
+
+
+def load_seq2seq_model(
+    *,
+    AutoConfig,
+    AutoModelForSeq2SeqLM,
+    model_name: str,
+    tokenizer,
+    from_scratch: bool,
+):
+    if from_scratch:
+        config = AutoConfig.from_pretrained(model_name)
+        configure_seq2seq_config_for_tokenizer(config, tokenizer)
+        model = AutoModelForSeq2SeqLM.from_config(config)
+    else:
+        model = AutoModelForSeq2SeqLM.from_pretrained(model_name)
+        configure_seq2seq_config_for_tokenizer(model.config, tokenizer)
+        if _embedding_vocab_size(model) != len(tokenizer):
+            model.resize_token_embeddings(len(tokenizer))
+    return model
+
+
+def configure_seq2seq_config_for_tokenizer(config, tokenizer) -> None:
+    config.vocab_size = len(tokenizer)
+    if tokenizer.pad_token_id is not None:
+        config.pad_token_id = tokenizer.pad_token_id
+    if tokenizer.eos_token_id is not None:
+        config.eos_token_id = tokenizer.eos_token_id
+    if tokenizer.bos_token_id is not None:
+        config.bos_token_id = tokenizer.bos_token_id
+    if getattr(config, "decoder_start_token_id", None) is None:
+        config.decoder_start_token_id = tokenizer.pad_token_id if tokenizer.pad_token_id is not None else tokenizer.eos_token_id
+
+
+def _embedding_vocab_size(model) -> int | None:
+    embeddings = model.get_input_embeddings()
+    if embeddings is None or not hasattr(embeddings, "weight"):
+        return None
+    return int(embeddings.weight.shape[0])
 
 
 def build_prompt_from_batch(batch: dict[str, list], index: int) -> str:

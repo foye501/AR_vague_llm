@@ -4,6 +4,7 @@ from ar_gstd.train_seq2seq_denoiser import (
     build_denoising_prompt,
     build_trainer_kwargs,
     build_training_args_kwargs,
+    configure_seq2seq_config_for_tokenizer,
     split_rows_by_example_id,
 )
 
@@ -31,6 +32,23 @@ class TokenizerTrainer:
 class MinimalTrainer:
     def __init__(self, model, args, train_dataset, eval_dataset, data_collator):
         pass
+
+
+class FakeConfig:
+    vocab_size = 10
+    pad_token_id = None
+    eos_token_id = None
+    bos_token_id = None
+    decoder_start_token_id = None
+
+
+class FakeTokenizer:
+    pad_token_id = 151644
+    eos_token_id = 151645
+    bos_token_id = None
+
+    def __len__(self):
+        return 151666
 
 
 def test_training_args_uses_eval_strategy_when_supported() -> None:
@@ -144,3 +162,14 @@ def test_prompt_includes_diffusion_metadata_when_present() -> None:
 
     assert "Diffusion timestep: 10/10" in prompt
     assert "Noise process: ar_absorb" in prompt
+
+
+def test_configure_seq2seq_config_for_tokenizer_sets_same_vocab_space() -> None:
+    config = FakeConfig()
+
+    configure_seq2seq_config_for_tokenizer(config, FakeTokenizer())
+
+    assert config.vocab_size == 151666
+    assert config.pad_token_id == 151644
+    assert config.eos_token_id == 151645
+    assert config.decoder_start_token_id == 151644

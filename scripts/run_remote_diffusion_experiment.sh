@@ -9,7 +9,8 @@ export PYTHONPATH="$ROOT_DIR/src${PYTHONPATH:+:$PYTHONPATH}"
 TEACHER_MODEL="${TEACHER_MODEL:-Qwen/Qwen2.5-0.5B-Instruct}"
 TEACHER_DTYPE="${TEACHER_DTYPE:-bfloat16}"
 DENOISER_MODEL="${DENOISER_MODEL:-google/flan-t5-small}"
-STUDENT_TOKENIZER_NAME="${STUDENT_TOKENIZER_NAME:-$DENOISER_MODEL}"
+DENOISER_TOKENIZER_NAME="${DENOISER_TOKENIZER_NAME:-$DENOISER_MODEL}"
+STUDENT_TOKENIZER_NAME="${STUDENT_TOKENIZER_NAME:-$DENOISER_TOKENIZER_NAME}"
 TOP_K="${TOP_K:-8}"
 DATA_FILE="${DATA_FILE:-artifacts/sql_create_context_subset.jsonl}"
 DATASET_NAME="${DATASET_NAME:-b-mc2/sql-create-context}"
@@ -34,6 +35,19 @@ RESUME_CLEAN_SFT="${RESUME_CLEAN_SFT:-}"
 RESUME_DIFF_ABSORB="${RESUME_DIFF_ABSORB:-}"
 RESUME_DIFF_AR_ABSORB="${RESUME_DIFF_AR_ABSORB:-}"
 RESUME_DIFF_FIXED_ABSORB="${RESUME_DIFF_FIXED_ABSORB:-}"
+TRAIN_FROM_SCRATCH="${TRAIN_FROM_SCRATCH:-0}"
+ADD_MASK_TOKEN="${ADD_MASK_TOKEN:-0}"
+MASK_TOKEN="${MASK_TOKEN:-[MASK]}"
+PAD_TOKEN="${PAD_TOKEN:-[PAD]}"
+RUN_BASE_ZERO_SHOT="${RUN_BASE_ZERO_SHOT:-1}"
+
+if [[ "$TRAIN_FROM_SCRATCH" == "1" || "$DENOISER_TOKENIZER_NAME" != "$DENOISER_MODEL" ]]; then
+  RUN_BASE_ZERO_SHOT=0
+fi
+if [[ "$DENOISER_TOKENIZER_NAME" != "$DENOISER_MODEL" && "$TRAIN_FROM_SCRATCH" != "1" ]]; then
+  printf 'DENOISER_TOKENIZER_NAME differs from DENOISER_MODEL; set TRAIN_FROM_SCRATCH=1 to avoid mismatched pretrained embeddings.\n' >&2
+  exit 1
+fi
 
 TRAIN_EXTRA_ARGS=(
   --gradient-accumulation-steps "$GRADIENT_ACCUMULATION_STEPS"
@@ -49,6 +63,19 @@ if [[ "$TRAIN_FP16" == "1" ]]; then
 fi
 if [[ "$GRADIENT_CHECKPOINTING" == "1" ]]; then
   TRAIN_EXTRA_ARGS+=(--gradient-checkpointing)
+fi
+
+TRAIN_MODEL_ARGS=(
+  --model-name "$DENOISER_MODEL"
+  --tokenizer-name "$DENOISER_TOKENIZER_NAME"
+  --mask-token "$MASK_TOKEN"
+  --pad-token "$PAD_TOKEN"
+)
+if [[ "$TRAIN_FROM_SCRATCH" == "1" ]]; then
+  TRAIN_MODEL_ARGS+=(--from-scratch)
+fi
+if [[ "$ADD_MASK_TOKEN" == "1" ]]; then
+  TRAIN_MODEL_ARGS+=(--add-mask-token)
 fi
 
 resume_args() {
@@ -71,7 +98,7 @@ python -m ar_gstd.materialize_clean_training_data \
 python -m ar_gstd.train_seq2seq_denoiser \
   --train-file artifacts/train_pairs_clean_sft.jsonl \
   --output-dir artifacts/denoiser_clean_sft \
-  --model-name "$DENOISER_MODEL" \
+  "${TRAIN_MODEL_ARGS[@]}" \
   --epochs "$EPOCHS" \
   --batch-size "$BATCH_SIZE" \
   "${TRAIN_EXTRA_ARGS[@]}" \
@@ -80,12 +107,14 @@ python -m ar_gstd.train_seq2seq_denoiser \
   --train-split-output artifacts/train_pairs_clean_sft_train.jsonl \
   --eval-split-output artifacts/train_pairs_clean_sft_eval.jsonl
 
-python -m ar_gstd.evaluate_denoiser \
-  --model-dir "$DENOISER_MODEL" \
-  --eval-file artifacts/train_pairs_clean_sft_eval.jsonl \
-  --output-predictions artifacts/predictions_base_zero_shot.jsonl \
-  --output-metrics artifacts/metrics_base_zero_shot.json \
-  --batch-size "$BATCH_SIZE"
+if [[ "$RUN_BASE_ZERO_SHOT" == "1" ]]; then
+  python -m ar_gstd.evaluate_denoiser \
+    --model-dir "$DENOISER_MODEL" \
+    --eval-file artifacts/train_pairs_clean_sft_eval.jsonl \
+    --output-predictions artifacts/predictions_base_zero_shot.jsonl \
+    --output-metrics artifacts/metrics_base_zero_shot.json \
+    --batch-size "$BATCH_SIZE"
+fi
 
 python -m ar_gstd.evaluate_denoiser \
   --model-dir artifacts/denoiser_clean_sft/final \
@@ -123,6 +152,7 @@ python -m ar_gstd.materialize_diffusion_training_data \
   --num-steps "$NUM_STEPS" \
   --timesteps "$TIMESTEPS" \
   --variants-per-timestep "$VARIANTS_PER_TIMESTEP" \
+  --mask-token "$MASK_TOKEN" \
   --seed 7
 
 python -m ar_gstd.materialize_diffusion_training_data \
@@ -133,6 +163,7 @@ python -m ar_gstd.materialize_diffusion_training_data \
   --timesteps "$TIMESTEPS" \
   --variants-per-timestep "$VARIANTS_PER_TIMESTEP" \
   --ar-strength "$AR_STRENGTH" \
+  --mask-token "$MASK_TOKEN" \
   --seed 7
 
 python -m ar_gstd.materialize_diffusion_training_data \
@@ -143,12 +174,13 @@ python -m ar_gstd.materialize_diffusion_training_data \
   --timesteps "$TIMESTEPS" \
   --variants-per-timestep "$VARIANTS_PER_TIMESTEP" \
   --ar-strength "$AR_STRENGTH" \
+  --mask-token "$MASK_TOKEN" \
   --seed 7
 
 python -m ar_gstd.train_seq2seq_denoiser \
   --train-file artifacts/train_pairs_diff_absorb.jsonl \
   --output-dir artifacts/denoiser_diff_absorb \
-  --model-name "$DENOISER_MODEL" \
+  "${TRAIN_MODEL_ARGS[@]}" \
   --epochs "$EPOCHS" \
   --batch-size "$BATCH_SIZE" \
   "${TRAIN_EXTRA_ARGS[@]}" \
@@ -160,7 +192,7 @@ python -m ar_gstd.train_seq2seq_denoiser \
 python -m ar_gstd.train_seq2seq_denoiser \
   --train-file artifacts/train_pairs_diff_ar_absorb.jsonl \
   --output-dir artifacts/denoiser_diff_ar_absorb \
-  --model-name "$DENOISER_MODEL" \
+  "${TRAIN_MODEL_ARGS[@]}" \
   --epochs "$EPOCHS" \
   --batch-size "$BATCH_SIZE" \
   "${TRAIN_EXTRA_ARGS[@]}" \
@@ -172,7 +204,7 @@ python -m ar_gstd.train_seq2seq_denoiser \
 python -m ar_gstd.train_seq2seq_denoiser \
   --train-file artifacts/train_pairs_diff_fixed_absorb.jsonl \
   --output-dir artifacts/denoiser_diff_fixed_absorb \
-  --model-name "$DENOISER_MODEL" \
+  "${TRAIN_MODEL_ARGS[@]}" \
   --epochs "$EPOCHS" \
   --batch-size "$BATCH_SIZE" \
   "${TRAIN_EXTRA_ARGS[@]}" \
@@ -237,13 +269,19 @@ python -m ar_gstd.summarize_metrics \
   artifacts/metrics_diff_ar_absorb_tT.json \
   artifacts/metrics_diff_fixed_absorb_tT.json
 
+CONTROL_METRICS=(artifacts/metrics_clean_sft.json)
+if [[ "$RUN_BASE_ZERO_SHOT" == "1" ]]; then
+  CONTROL_METRICS=(artifacts/metrics_base_zero_shot.json "${CONTROL_METRICS[@]}")
+fi
+CONTROL_METRICS+=(
+  artifacts/metrics_diff_absorb_tT.json
+  artifacts/metrics_diff_ar_absorb_tT.json
+  artifacts/metrics_diff_fixed_absorb_tT.json
+)
+
 python -m ar_gstd.summarize_metrics \
   --output artifacts/metrics_control_summary.md \
-  artifacts/metrics_base_zero_shot.json \
-  artifacts/metrics_clean_sft.json \
-  artifacts/metrics_diff_absorb_tT.json \
-  artifacts/metrics_diff_ar_absorb_tT.json \
-  artifacts/metrics_diff_fixed_absorb_tT.json
+  "${CONTROL_METRICS[@]}"
 
 python -m ar_gstd.summarize_metrics \
   --output artifacts/metrics_schema_focus_summary.md \

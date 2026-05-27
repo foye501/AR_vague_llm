@@ -199,6 +199,18 @@ Tokenizer note: when the AR teacher and diffusion student use different tokenize
 
 The teacher proposes top-k text tokens, then the cache projects candidates that map cleanly to one student token. This keeps the diffusion state aligned with the student vocabulary.
 
+Before trusting a cross-tokenizer run, inspect how lossy that projection is:
+
+```bash
+python -m ar_gstd.inspect_tokenizers \
+  --teacher-tokenizer Qwen/Qwen2.5-3B-Instruct \
+  --student-tokenizer google/flan-t5-large \
+  --output-markdown artifacts/tokenizer_compat_qwen_t5.md \
+  --output-json artifacts/tokenizer_compat_qwen_t5.json
+```
+
+If the teacher-to-student single-token projection ratio is low, treat the projected experiment as a weak text-fragment proxy. For the cleanest publication setting, train the diffusion student in the teacher tokenizer space.
+
 ## Manual Pipeline
 
 Build the conditional AR transition cache:

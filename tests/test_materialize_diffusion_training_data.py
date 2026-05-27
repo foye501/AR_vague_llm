@@ -89,3 +89,44 @@ def test_corrupt_diffusion_token_ids_preserves_target_length_at_endpoint() -> No
 
     assert corrupted == [tokenizer.mask_token_id, tokenizer.mask_token_id, tokenizer.mask_token_id]
     assert len(corrupted) == len(cache.target_token_ids)
+
+
+def test_difficulty_weights_can_change_mask_pattern() -> None:
+    tokenizer = ToyTokenizer()
+    add_diffusion_special_tokens(tokenizer, mask_token="[MASK]", pad_token="[PAD]")
+    cache = TransitionCache(
+        example_id="x",
+        transcript="Question: q",
+        clean_summary="SELECT age",
+        tokenizer_name="toy",
+        teacher_model="teacher",
+        target_token_ids=(10, 11),
+        rows=(),
+    )
+
+    uniform = corrupt_diffusion_token_ids(
+        cache,
+        tokenizer=tokenizer,
+        timestep=5,
+        num_steps=10,
+        noise_kind="absorbing",
+        seed=0,
+        mask_token="[MASK]",
+        ar_strength=0.0,
+        mask_power=1.0,
+    )
+    adaptive = corrupt_diffusion_token_ids(
+        cache,
+        tokenizer=tokenizer,
+        timestep=5,
+        num_steps=10,
+        noise_kind="absorbing",
+        seed=0,
+        mask_token="[MASK]",
+        ar_strength=0.0,
+        mask_power=1.0,
+        difficulty_by_position={0: 2.0, 1: 0.5},
+    )
+
+    assert uniform == [10, 11]
+    assert adaptive == [tokenizer.mask_token_id, 11]

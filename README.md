@@ -244,6 +244,12 @@ scripts/run_remote_bidirectional_qwen_experiment.sh
 
 This path changes the student from causal next-token attention to full bidirectional self-attention over `[source context || noisy target]`, computes loss only on target token positions, and keeps the Qwen tokenizer throughout. It writes `artifacts/metrics_bidirectional_qwen_tT_summary.md`.
 
+Research plan and tutorial for the token-adaptive variant:
+
+```bash
+cat docs/ar_guided_token_adaptive_text2sql.md
+```
+
 ## Manual Pipeline
 
 Build the conditional AR transition cache:

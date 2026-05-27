@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 import random
 
+from .token_scores import adaptive_mask_probability, difficulty_weights, load_token_score_caches
 from .transitions import TransitionCache, load_transition_caches, sample_from_sparse_row
 
 
@@ -20,6 +21,9 @@ def main() -> None:
     parser.add_argument("--mask-power", type=float, default=1.0)
     parser.add_argument("--mask-token", default="[MASK]")
     parser.add_argument("--pad-token", default="[PAD]")
+    parser.add_argument("--token-score-cache", type=Path, default=None)
+    parser.add_argument("--mask-policy", choices=("uniform", "ar_difficulty"), default="uniform")
+    parser.add_argument("--difficulty-strength", type=float, default=0.75)
     parser.add_argument("--seed", type=int, default=0)
     args = parser.parse_args()
 
@@ -32,12 +36,14 @@ def main() -> None:
     tokenizer = AutoTokenizer.from_pretrained(caches[0].tokenizer_name, trust_remote_code=True)
     add_diffusion_special_tokens(tokenizer, mask_token=args.mask_token, pad_token=args.pad_token)
     timesteps = parse_timesteps(args.timesteps, args.num_steps)
+    token_score_caches = load_token_score_caches(args.token_score_cache) if args.token_score_cache is not None else {}
 
     rows: list[dict[str, object]] = []
     for example_index, cache in enumerate(caches):
         for timestep in timesteps:
             for variant_index in range(args.variants_per_timestep):
                 sample_seed = args.seed + example_index * 100_003 + timestep * 101 + variant_index
+                token_score_cache = token_score_caches.get(cache.example_id)
                 corrupted_token_ids = corrupt_diffusion_token_ids(
                     cache,
                     tokenizer=tokenizer,
@@ -48,6 +54,11 @@ def main() -> None:
                     mask_token=args.mask_token,
                     ar_strength=args.ar_strength,
                     mask_power=args.mask_power,
+                    difficulty_by_position=(
+                        difficulty_weights(token_score_cache.rows, strength=args.difficulty_strength)
+                        if args.mask_policy == "ar_difficulty" and token_score_cache is not None
+                        else None
+                    ),
                 )
                 corrupted = decode_diffusion_token_ids(tokenizer, corrupted_token_ids, mask_token=args.mask_token)
                 rows.append(
@@ -62,6 +73,7 @@ def main() -> None:
                         "clean_summary": cache.clean_summary,
                         "corrupted_token_ids": corrupted_token_ids,
                         "clean_token_ids": list(cache.target_token_ids),
+                        "mask_policy": args.mask_policy,
                     }
                 )
 
@@ -81,6 +93,7 @@ def corrupt_diffusion_state(
     mask_token: str,
     ar_strength: float,
     mask_power: float,
+    difficulty_by_position: dict[int, float] | None = None,
 ) -> str:
     corrupted_token_ids = corrupt_diffusion_token_ids(
         cache,
@@ -92,6 +105,7 @@ def corrupt_diffusion_state(
         mask_token=mask_token,
         ar_strength=ar_strength,
         mask_power=mask_power,
+        difficulty_by_position=difficulty_by_position,
     )
     return decode_diffusion_token_ids(tokenizer, corrupted_token_ids, mask_token=mask_token)
 
@@ -107,6 +121,7 @@ def corrupt_diffusion_token_ids(
     mask_token: str,
     ar_strength: float,
     mask_power: float,
+    difficulty_by_position: dict[int, float] | None = None,
 ) -> list[int]:
     if not 0 <= timestep <= num_steps:
         raise ValueError("timestep must be between 0 and num_steps")
@@ -127,11 +142,15 @@ def corrupt_diffusion_token_ids(
     corrupted_token_ids: list[int] = []
 
     for position, source_token_id in enumerate(cache.target_token_ids):
+        position_mask_prob = mask_prob
+        if difficulty_by_position is not None and mask_prob < 1.0:
+            position_mask_prob = adaptive_mask_probability(mask_prob, difficulty_by_position.get(position, 1.0))
+        position_ar_prob = min(ar_prob, 1.0 - position_mask_prob)
         draw = rng.random()
-        if draw < mask_prob:
+        if draw < position_mask_prob:
             corrupted_token_ids.append(int(tokenizer.mask_token_id))
             continue
-        if draw < mask_prob + ar_prob:
+        if draw < position_mask_prob + position_ar_prob:
             row = rows_by_position.get(position)
             if row is not None and row.top_token_ids:
                 corrupted_token_ids.append(int(sample_from_sparse_row(row, rng)))

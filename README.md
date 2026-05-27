@@ -190,6 +190,15 @@ cat artifacts/metrics_control_summary.md
 
 This separates pretrained ability and clean SFT from the diffusion-style objectives. The diffusion claim should compare only models with the same pretrained initialization and no AR teacher at inference time.
 
+Tokenizer note: when the AR teacher and diffusion student use different tokenizers, build the transition cache in the **student tokenizer space**:
+
+```bash
+--teacher-model Qwen/Qwen2.5-3B-Instruct \
+--student-tokenizer-name google/flan-t5-large
+```
+
+The teacher proposes top-k text tokens, then the cache projects candidates that map cleanly to one student token. This keeps the diffusion state aligned with the student vocabulary.
+
 ## Manual Pipeline
 
 Build the conditional AR transition cache:

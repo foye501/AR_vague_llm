@@ -13,6 +13,7 @@ def main() -> None:
     parser.add_argument("--output", type=Path, default=Path("artifacts/ar_transition_cache.jsonl"))
     parser.add_argument("--teacher-model", default="Qwen/Qwen2.5-0.5B-Instruct")
     parser.add_argument("--tokenizer-name", default="", help="Defaults to --teacher-model.")
+    parser.add_argument("--student-tokenizer-name", default="", help="If set, cache transitions in the student tokenizer space.")
     parser.add_argument("--top-k", type=int, default=8)
     parser.add_argument("--temperature", type=float, default=1.0)
     parser.add_argument("--max-examples", type=int, default=0)
@@ -27,10 +28,16 @@ def main() -> None:
     import torch
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
-    tokenizer_name = args.tokenizer_name or args.teacher_model
-    tokenizer = AutoTokenizer.from_pretrained(tokenizer_name, trust_remote_code=True)
-    if tokenizer.pad_token_id is None and tokenizer.eos_token_id is not None:
-        tokenizer.pad_token = tokenizer.eos_token
+    teacher_tokenizer_name = args.tokenizer_name or args.teacher_model
+    teacher_tokenizer = AutoTokenizer.from_pretrained(teacher_tokenizer_name, trust_remote_code=True)
+    if teacher_tokenizer.pad_token_id is None and teacher_tokenizer.eos_token_id is not None:
+        teacher_tokenizer.pad_token = teacher_tokenizer.eos_token
+    student_tokenizer_name = args.student_tokenizer_name or teacher_tokenizer_name
+    student_tokenizer = (
+        teacher_tokenizer
+        if student_tokenizer_name == teacher_tokenizer_name
+        else AutoTokenizer.from_pretrained(student_tokenizer_name, trust_remote_code=True)
+    )
 
     dtype = _torch_dtype(args.dtype, torch)
     if args.device_map_auto:
@@ -56,29 +63,37 @@ def main() -> None:
 
     caches: list[TransitionCache] = []
     for index, example in enumerate(examples, start=1):
-        target_token_ids = tokenizer.encode(example.clean_summary, add_special_tokens=False)[: args.max_target_tokens]
+        target_token_ids = student_tokenizer.encode(example.clean_summary, add_special_tokens=False)[: args.max_target_tokens]
         rows: list[SparseTransitionRow] = []
         for position, source_token_id in enumerate(target_token_ids):
-            prefix = tokenizer.decode(target_token_ids[:position], skip_special_tokens=False)
+            prefix = student_tokenizer.decode(target_token_ids[:position], skip_special_tokens=False)
             prompt = build_teacher_prompt(example.transcript, prefix)
-            top_ids, top_probs = _next_token_topk(
+            teacher_top_ids, teacher_top_probs = _next_token_topk(
                 prompt=prompt,
-                tokenizer=tokenizer,
+                tokenizer=teacher_tokenizer,
                 model=model,
                 device=device,
-                source_token_id=source_token_id,
-                top_k=args.top_k,
+                source_token_id=None,
+                top_k=args.top_k * 8,
                 temperature=args.temperature,
                 max_context_tokens=args.max_context_tokens,
+            )
+            top_ids, top_probs, top_texts = project_teacher_topk_to_student(
+                teacher_tokenizer=teacher_tokenizer,
+                student_tokenizer=student_tokenizer,
+                teacher_top_ids=teacher_top_ids,
+                teacher_top_probs=teacher_top_probs,
+                source_token_id=source_token_id,
+                top_k=args.top_k,
             )
             rows.append(
                 SparseTransitionRow(
                     position=position,
                     source_token_id=int(source_token_id),
-                    source_text=tokenizer.decode([source_token_id], skip_special_tokens=False),
+                    source_text=student_tokenizer.decode([source_token_id], skip_special_tokens=False),
                     top_token_ids=tuple(top_ids),
                     top_probs=tuple(top_probs),
-                    top_texts=tuple(tokenizer.decode([token_id], skip_special_tokens=False) for token_id in top_ids),
+                    top_texts=tuple(top_texts),
                 )
             )
         caches.append(
@@ -86,7 +101,7 @@ def main() -> None:
                 example_id=example.example_id,
                 transcript=example.transcript,
                 clean_summary=example.clean_summary,
-                tokenizer_name=tokenizer_name,
+                tokenizer_name=student_tokenizer_name,
                 teacher_model=args.teacher_model,
                 target_token_ids=tuple(target_token_ids),
                 rows=tuple(rows),
@@ -113,7 +128,7 @@ def _next_token_topk(
     tokenizer,
     model,
     device,
-    source_token_id: int,
+    source_token_id: int | None,
     top_k: int,
     temperature: float,
     max_context_tokens: int,
@@ -140,7 +155,7 @@ def _next_token_topk(
     candidate_ids: list[int] = []
     candidate_probs: list[float] = []
     for token_id, prob in zip(ids.tolist(), values.tolist(), strict=True):
-        if int(token_id) == int(source_token_id):
+        if source_token_id is not None and int(token_id) == int(source_token_id):
             continue
         candidate_ids.append(int(token_id))
         candidate_probs.append(float(prob))
@@ -148,6 +163,34 @@ def _next_token_topk(
             break
 
     return candidate_ids, list(normalize_probs(candidate_probs))
+
+
+def project_teacher_topk_to_student(
+    *,
+    teacher_tokenizer,
+    student_tokenizer,
+    teacher_top_ids: list[int],
+    teacher_top_probs: list[float],
+    source_token_id: int,
+    top_k: int,
+) -> tuple[list[int], list[float], list[str]]:
+    scores: dict[int, float] = {}
+    texts: dict[int, str] = {}
+    for teacher_token_id, prob in zip(teacher_top_ids, teacher_top_probs, strict=True):
+        text = teacher_tokenizer.decode([teacher_token_id], skip_special_tokens=False)
+        student_ids = student_tokenizer.encode(text, add_special_tokens=False)
+        if len(student_ids) != 1:
+            continue
+        student_id = int(student_ids[0])
+        if student_id == int(source_token_id):
+            continue
+        scores[student_id] = scores.get(student_id, 0.0) + float(prob)
+        texts[student_id] = student_tokenizer.decode([student_id], skip_special_tokens=False)
+
+    ranked = sorted(scores.items(), key=lambda item: item[1], reverse=True)[:top_k]
+    token_ids = [token_id for token_id, _ in ranked]
+    probs = list(normalize_probs(score for _, score in ranked))
+    return token_ids, probs, [texts[token_id] for token_id in token_ids]
 
 
 def _resolve_device(device: str, torch):

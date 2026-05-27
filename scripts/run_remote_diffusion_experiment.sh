@@ -9,6 +9,7 @@ export PYTHONPATH="$ROOT_DIR/src${PYTHONPATH:+:$PYTHONPATH}"
 TEACHER_MODEL="${TEACHER_MODEL:-Qwen/Qwen2.5-0.5B-Instruct}"
 TEACHER_DTYPE="${TEACHER_DTYPE:-bfloat16}"
 DENOISER_MODEL="${DENOISER_MODEL:-google/flan-t5-small}"
+STUDENT_TOKENIZER_NAME="${STUDENT_TOKENIZER_NAME:-$DENOISER_MODEL}"
 TOP_K="${TOP_K:-8}"
 DATA_FILE="${DATA_FILE:-artifacts/sql_create_context_subset.jsonl}"
 DATASET_NAME="${DATASET_NAME:-b-mc2/sql-create-context}"
@@ -97,6 +98,7 @@ python -m ar_gstd.build_transition_cache \
   --input "$DATA_FILE" \
   --output artifacts/ar_transition_cache.jsonl \
   --teacher-model "$TEACHER_MODEL" \
+  --student-tokenizer-name "$STUDENT_TOKENIZER_NAME" \
   --top-k "$TOP_K" \
   --max-examples "$MAX_EXAMPLES" \
   --max-target-tokens "$MAX_TARGET_TOKENS" \

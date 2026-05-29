@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 from pathlib import Path
 
-from .bidirectional_denoising import build_bidirectional_denoising_features
+from .bidirectional_denoising import aligned_target_token_ids, build_bidirectional_denoising_features
 from .evaluate_denoiser import score_predictions
 
 
@@ -18,6 +19,7 @@ def main() -> None:
     parser.add_argument("--max-sequence-length", type=int, default=1024)
     parser.add_argument("--max-target-length", type=int, default=256)
     parser.add_argument("--only-timestep", type=int, default=None)
+    parser.add_argument("--denoising-iterations", type=int, default=1)
     parser.add_argument("--device", default="auto", choices=("auto", "cuda", "mps", "cpu"))
     args = parser.parse_args()
 
@@ -42,25 +44,22 @@ def main() -> None:
     model.to(device)
     model.eval()
 
+    if args.denoising_iterations < 1:
+        raise SystemExit("--denoising-iterations must be at least 1")
+
     predictions: list[dict[str, object]] = []
     for start in range(0, len(rows), args.batch_size):
         batch_rows = rows[start : start + args.batch_size]
-        features = [
-            build_bidirectional_denoising_features(
-                row,
-                tokenizer=tokenizer,
-                max_sequence_length=args.max_sequence_length,
-                max_target_length=args.max_target_length,
-            )
-            for row in batch_rows
-        ]
-        batch = pad_eval_features(features, pad_token_id=tokenizer.pad_token_id)
-        batch = {key: value.to(device) for key, value in batch.items()}
-        with torch.no_grad():
-            logits = model(input_ids=batch["input_ids"], attention_mask=batch["attention_mask"]).logits
-        for row, feature, row_logits in zip(batch_rows, features, logits, strict=True):
-            target_logits = row_logits[feature.target_start : feature.target_start + feature.target_length]
-            prediction_ids = target_logits.argmax(dim=-1).tolist()
+        prediction_ids_by_row = iterative_denoise_batch(
+            rows=batch_rows,
+            tokenizer=tokenizer,
+            model=model,
+            device=device,
+            max_sequence_length=args.max_sequence_length,
+            max_target_length=args.max_target_length,
+            iterations=args.denoising_iterations,
+        )
+        for row, prediction_ids in zip(batch_rows, prediction_ids_by_row, strict=True):
             prediction = tokenizer.decode(prediction_ids, skip_special_tokens=True)
             predictions.append(
                 {
@@ -70,6 +69,7 @@ def main() -> None:
                     "noise_kind": row.get("noise_kind", ""),
                     "timestep": row.get("timestep", ""),
                     "num_steps": row.get("num_steps", ""),
+                    "denoising_iterations": args.denoising_iterations,
                     "transcript": row["transcript"],
                     "corrupted_summary": row["corrupted_summary"],
                     "prediction": prediction,
@@ -86,6 +86,82 @@ def main() -> None:
     )
     args.output_metrics.write_text(json.dumps(metrics, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     print(json.dumps(metrics, indent=2, ensure_ascii=False))
+
+
+def iterative_denoise_batch(
+    *,
+    rows: list[dict[str, object]],
+    tokenizer,
+    model,
+    device,
+    max_sequence_length: int,
+    max_target_length: int,
+    iterations: int,
+) -> list[list[int]]:
+    import torch
+
+    mask_token_id = tokenizer.mask_token_id
+    if mask_token_id is None:
+        raise ValueError("tokenizer must define a mask token")
+
+    current_ids_by_row: list[list[int]] = []
+    for row in rows:
+        clean_ids, corrupted_ids = aligned_target_token_ids(
+            row,
+            tokenizer=tokenizer,
+            max_target_length=max_target_length,
+        )
+        target_length = len(clean_ids)
+        if len(corrupted_ids) < target_length:
+            corrupted_ids = corrupted_ids + [mask_token_id] * (target_length - len(corrupted_ids))
+        current_ids_by_row.append([int(token_id) for token_id in corrupted_ids[:target_length]])
+
+    for step in range(1, iterations + 1):
+        step_rows = []
+        for row, current_ids in zip(rows, current_ids_by_row, strict=True):
+            step_row = dict(row)
+            step_row["corrupted_token_ids"] = current_ids
+            step_row["corrupted_summary"] = tokenizer.decode(current_ids, skip_special_tokens=False)
+            step_rows.append(step_row)
+        features = [
+            build_bidirectional_denoising_features(
+                row,
+                tokenizer=tokenizer,
+                max_sequence_length=max_sequence_length,
+                max_target_length=max_target_length,
+            )
+            for row in step_rows
+        ]
+        batch = pad_eval_features(features, pad_token_id=tokenizer.pad_token_id)
+        batch = {key: value.to(device) for key, value in batch.items()}
+        with torch.no_grad():
+            logits = model(input_ids=batch["input_ids"], attention_mask=batch["attention_mask"]).logits
+
+        next_ids_by_row: list[list[int]] = []
+        for current_ids, feature, row_logits in zip(current_ids_by_row, features, logits, strict=True):
+            target_logits = row_logits[feature.target_start : feature.target_start + feature.target_length]
+            probs = torch.softmax(target_logits.float(), dim=-1)
+            confidences, predicted = probs.max(dim=-1)
+            predicted_ids = [int(token_id) for token_id in predicted.tolist()]
+            confidence_values = [float(value) for value in confidences.tolist()]
+            commit_count = math.ceil(len(predicted_ids) * step / iterations)
+            selected = set(top_confidence_positions(confidence_values, commit_count))
+            next_ids_by_row.append(
+                [
+                    predicted_ids[position] if position in selected else int(mask_token_id)
+                    for position in range(len(predicted_ids))
+                ]
+            )
+        current_ids_by_row = next_ids_by_row
+
+    return current_ids_by_row
+
+
+def top_confidence_positions(confidences: list[float], count: int) -> list[int]:
+    if count <= 0:
+        return []
+    ranked = sorted(range(len(confidences)), key=lambda index: confidences[index], reverse=True)
+    return ranked[: min(count, len(ranked))]
 
 
 def pad_eval_features(features, *, pad_token_id: int):

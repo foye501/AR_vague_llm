@@ -38,6 +38,9 @@ MASK_TOKEN="${MASK_TOKEN:-[MASK]}"
 PAD_TOKEN="${PAD_TOKEN:-[PAD]}"
 DIFFICULTY_STRENGTH="${DIFFICULTY_STRENGTH:-0.75}"
 RUN_PREP="${RUN_PREP:-1}"
+RUN_TRAIN="${RUN_TRAIN:-1}"
+ITERATIVE_STEPS="${ITERATIVE_STEPS:-2,4,8}"
+ITERATIVE_VARIANT="${ITERATIVE_VARIANT:-bidir_ar_absorb}"
 
 TRAIN_EXTRA_ARGS=(
   --gradient-accumulation-steps "$GRADIENT_ACCUMULATION_STEPS"
@@ -152,69 +155,71 @@ if [[ "$RUN_PREP" == "1" ]]; then
     --seed 7
 fi
 
-python -m ar_gstd.train_bidirectional_qwen_denoiser \
-  --train-file artifacts/train_pairs_bidir_absorb.jsonl \
-  --output-dir artifacts/denoiser_bidir_absorb \
-  --model-name "$STUDENT_MODEL" \
-  --tokenizer-name "$TOKENIZER_NAME" \
-  --mask-token "$MASK_TOKEN" \
-  --pad-token "$PAD_TOKEN" \
-  --epochs "$EPOCHS" \
-  --batch-size "$BATCH_SIZE" \
-  "${TRAIN_EXTRA_ARGS[@]}" \
-  --eval-ratio "$EVAL_RATIO" \
-  --max-sequence-length "$MAX_SEQUENCE_LENGTH" \
-  --max-target-length "$MAX_TARGET_TOKENS" \
-  --train-split-output artifacts/train_pairs_bidir_absorb_train.jsonl \
-  --eval-split-output artifacts/train_pairs_bidir_absorb_eval.jsonl
+if [[ "$RUN_TRAIN" == "1" ]]; then
+  python -m ar_gstd.train_bidirectional_qwen_denoiser \
+    --train-file artifacts/train_pairs_bidir_absorb.jsonl \
+    --output-dir artifacts/denoiser_bidir_absorb \
+    --model-name "$STUDENT_MODEL" \
+    --tokenizer-name "$TOKENIZER_NAME" \
+    --mask-token "$MASK_TOKEN" \
+    --pad-token "$PAD_TOKEN" \
+    --epochs "$EPOCHS" \
+    --batch-size "$BATCH_SIZE" \
+    "${TRAIN_EXTRA_ARGS[@]}" \
+    --eval-ratio "$EVAL_RATIO" \
+    --max-sequence-length "$MAX_SEQUENCE_LENGTH" \
+    --max-target-length "$MAX_TARGET_TOKENS" \
+    --train-split-output artifacts/train_pairs_bidir_absorb_train.jsonl \
+    --eval-split-output artifacts/train_pairs_bidir_absorb_eval.jsonl
 
-python -m ar_gstd.train_bidirectional_qwen_denoiser \
-  --train-file artifacts/train_pairs_bidir_ar_absorb.jsonl \
-  --output-dir artifacts/denoiser_bidir_ar_absorb \
-  --model-name "$STUDENT_MODEL" \
-  --tokenizer-name "$TOKENIZER_NAME" \
-  --mask-token "$MASK_TOKEN" \
-  --pad-token "$PAD_TOKEN" \
-  --epochs "$EPOCHS" \
-  --batch-size "$BATCH_SIZE" \
-  "${TRAIN_EXTRA_ARGS[@]}" \
-  --eval-ratio "$EVAL_RATIO" \
-  --max-sequence-length "$MAX_SEQUENCE_LENGTH" \
-  --max-target-length "$MAX_TARGET_TOKENS" \
-  --train-split-output artifacts/train_pairs_bidir_ar_absorb_train.jsonl \
-  --eval-split-output artifacts/train_pairs_bidir_ar_absorb_eval.jsonl
+  python -m ar_gstd.train_bidirectional_qwen_denoiser \
+    --train-file artifacts/train_pairs_bidir_ar_absorb.jsonl \
+    --output-dir artifacts/denoiser_bidir_ar_absorb \
+    --model-name "$STUDENT_MODEL" \
+    --tokenizer-name "$TOKENIZER_NAME" \
+    --mask-token "$MASK_TOKEN" \
+    --pad-token "$PAD_TOKEN" \
+    --epochs "$EPOCHS" \
+    --batch-size "$BATCH_SIZE" \
+    "${TRAIN_EXTRA_ARGS[@]}" \
+    --eval-ratio "$EVAL_RATIO" \
+    --max-sequence-length "$MAX_SEQUENCE_LENGTH" \
+    --max-target-length "$MAX_TARGET_TOKENS" \
+    --train-split-output artifacts/train_pairs_bidir_ar_absorb_train.jsonl \
+    --eval-split-output artifacts/train_pairs_bidir_ar_absorb_eval.jsonl
 
-python -m ar_gstd.train_bidirectional_qwen_denoiser \
-  --train-file artifacts/train_pairs_bidir_fixed_absorb.jsonl \
-  --output-dir artifacts/denoiser_bidir_fixed_absorb \
-  --model-name "$STUDENT_MODEL" \
-  --tokenizer-name "$TOKENIZER_NAME" \
-  --mask-token "$MASK_TOKEN" \
-  --pad-token "$PAD_TOKEN" \
-  --epochs "$EPOCHS" \
-  --batch-size "$BATCH_SIZE" \
-  "${TRAIN_EXTRA_ARGS[@]}" \
-  --eval-ratio "$EVAL_RATIO" \
-  --max-sequence-length "$MAX_SEQUENCE_LENGTH" \
-  --max-target-length "$MAX_TARGET_TOKENS" \
-  --train-split-output artifacts/train_pairs_bidir_fixed_absorb_train.jsonl \
-  --eval-split-output artifacts/train_pairs_bidir_fixed_absorb_eval.jsonl
+  python -m ar_gstd.train_bidirectional_qwen_denoiser \
+    --train-file artifacts/train_pairs_bidir_fixed_absorb.jsonl \
+    --output-dir artifacts/denoiser_bidir_fixed_absorb \
+    --model-name "$STUDENT_MODEL" \
+    --tokenizer-name "$TOKENIZER_NAME" \
+    --mask-token "$MASK_TOKEN" \
+    --pad-token "$PAD_TOKEN" \
+    --epochs "$EPOCHS" \
+    --batch-size "$BATCH_SIZE" \
+    "${TRAIN_EXTRA_ARGS[@]}" \
+    --eval-ratio "$EVAL_RATIO" \
+    --max-sequence-length "$MAX_SEQUENCE_LENGTH" \
+    --max-target-length "$MAX_TARGET_TOKENS" \
+    --train-split-output artifacts/train_pairs_bidir_fixed_absorb_train.jsonl \
+    --eval-split-output artifacts/train_pairs_bidir_fixed_absorb_eval.jsonl
 
-python -m ar_gstd.train_bidirectional_qwen_denoiser \
-  --train-file artifacts/train_pairs_bidir_ar_adaptive.jsonl \
-  --output-dir artifacts/denoiser_bidir_ar_adaptive \
-  --model-name "$STUDENT_MODEL" \
-  --tokenizer-name "$TOKENIZER_NAME" \
-  --mask-token "$MASK_TOKEN" \
-  --pad-token "$PAD_TOKEN" \
-  --epochs "$EPOCHS" \
-  --batch-size "$BATCH_SIZE" \
-  "${TRAIN_EXTRA_ARGS[@]}" \
-  --eval-ratio "$EVAL_RATIO" \
-  --max-sequence-length "$MAX_SEQUENCE_LENGTH" \
-  --max-target-length "$MAX_TARGET_TOKENS" \
-  --train-split-output artifacts/train_pairs_bidir_ar_adaptive_train.jsonl \
-  --eval-split-output artifacts/train_pairs_bidir_ar_adaptive_eval.jsonl
+  python -m ar_gstd.train_bidirectional_qwen_denoiser \
+    --train-file artifacts/train_pairs_bidir_ar_adaptive.jsonl \
+    --output-dir artifacts/denoiser_bidir_ar_adaptive \
+    --model-name "$STUDENT_MODEL" \
+    --tokenizer-name "$TOKENIZER_NAME" \
+    --mask-token "$MASK_TOKEN" \
+    --pad-token "$PAD_TOKEN" \
+    --epochs "$EPOCHS" \
+    --batch-size "$BATCH_SIZE" \
+    "${TRAIN_EXTRA_ARGS[@]}" \
+    --eval-ratio "$EVAL_RATIO" \
+    --max-sequence-length "$MAX_SEQUENCE_LENGTH" \
+    --max-target-length "$MAX_TARGET_TOKENS" \
+    --train-split-output artifacts/train_pairs_bidir_ar_adaptive_train.jsonl \
+    --eval-split-output artifacts/train_pairs_bidir_ar_adaptive_eval.jsonl
+fi
 
 python -m ar_gstd.evaluate_bidirectional_qwen_denoiser \
   --model-dir artifacts/denoiser_bidir_absorb/final \
@@ -263,5 +268,30 @@ python -m ar_gstd.summarize_metrics \
   artifacts/metrics_bidir_fixed_absorb_tT.json \
   artifacts/metrics_bidir_ar_adaptive_tT.json
 
+if [[ -n "$ITERATIVE_STEPS" ]]; then
+  IFS=',' read -r -a ITERATION_VALUES <<< "$ITERATIVE_STEPS"
+  ITERATIVE_METRICS=()
+  for ITERATION in "${ITERATION_VALUES[@]}"; do
+    python -m ar_gstd.evaluate_bidirectional_qwen_denoiser \
+      --model-dir "artifacts/denoiser_${ITERATIVE_VARIANT}/final" \
+      --eval-file "artifacts/train_pairs_${ITERATIVE_VARIANT}_eval.jsonl" \
+      --only-timestep "$NUM_STEPS" \
+      --denoising-iterations "$ITERATION" \
+      --output-predictions "artifacts/predictions_${ITERATIVE_VARIANT}_iter${ITERATION}_tT.jsonl" \
+      --output-metrics "artifacts/metrics_${ITERATIVE_VARIANT}_iter${ITERATION}_tT.json" \
+      --batch-size "$BATCH_SIZE" \
+      --max-sequence-length "$MAX_SEQUENCE_LENGTH" \
+      --max-target-length "$MAX_TARGET_TOKENS"
+    ITERATIVE_METRICS+=("artifacts/metrics_${ITERATIVE_VARIANT}_iter${ITERATION}_tT.json")
+  done
+
+  python -m ar_gstd.summarize_metrics \
+    --output "artifacts/metrics_${ITERATIVE_VARIANT}_iterative_summary.md" \
+    "${ITERATIVE_METRICS[@]}"
+fi
+
 printf '\nFinished bidirectional Qwen masked-denoiser run.\n'
 printf 'Main comparison: artifacts/metrics_bidirectional_qwen_tT_summary.md\n'
+if [[ -n "$ITERATIVE_STEPS" ]]; then
+  printf 'Iterative comparison: artifacts/metrics_%s_iterative_summary.md\n' "$ITERATIVE_VARIANT"
+fi

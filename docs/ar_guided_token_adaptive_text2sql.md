@@ -140,10 +140,28 @@ cat artifacts/metrics_bidirectional_qwen_tT_summary.md
 cat artifacts/transition_cache_analysis.md
 ```
 
+Run iterative evaluation only after checkpoints already exist:
+
+```bash
+RUN_PREP=0 \
+RUN_TRAIN=0 \
+ITERATIVE_VARIANT=bidir_ar_absorb \
+ITERATIVE_STEPS=2,4,8 \
+BATCH_SIZE=16 \
+MAX_TARGET_TOKENS=160 \
+scripts/run_remote_bidirectional_qwen_experiment.sh
+```
+
+This writes:
+
+```text
+artifacts/metrics_bidir_ar_absorb_iterative_summary.md
+```
+
 ## Next Milestones
 
-1. Add category-level evaluation for schema identifiers and literals.
-2. Add token-adaptive loss weights in addition to token-adaptive masking.
-3. Add iterative denoising evaluation over `1,2,4,8,16` steps.
+1. Add token-adaptive loss weights in addition to token-adaptive masking.
+2. Add execution accuracy on Spider/BIRD.
+3. Extend iterative denoising evaluation to learned remasking schedules.
 4. Move from synthetic/subset SQL to Spider or BIRD.
 5. Report offline AR-score cost separately from inference throughput.

@@ -36,8 +36,8 @@ def to_markdown(rows: list[tuple[str, dict[str, float | int]]]) -> str:
     lines = [
         "# Denoiser Metrics Summary",
         "",
-        "| Run | Rows | SQL EM | SQL Valid | SQL Repair Delta | Token F1 | Corrupted Token F1 | Token Repair Delta | Line F1 | Line Repair Delta |",
-        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+        "| Run | Rows | SQL EM | SQL Valid | SQL Repair Delta | Token F1 | Schema F1 | Literal F1 | Operator F1 | Corrupted Token F1 | Token Repair Delta | Line F1 | Line Repair Delta |",
+        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
     ]
     for label, metrics in rows:
         lines.append(
@@ -50,6 +50,9 @@ def to_markdown(rows: list[tuple[str, dict[str, float | int]]]) -> str:
                     _fmt(metrics.get("sql_keyword_valid", 0.0)),
                     _fmt(metrics.get("sql_repair_delta", 0.0)),
                     _fmt(metrics.get("prediction_token_f1", 0.0)),
+                    _fmt(metrics.get("schema_identifier_token_f1", 0.0)),
+                    _fmt(metrics.get("literal_token_f1", 0.0)),
+                    _fmt(metrics.get("operator_token_f1", 0.0)),
                     _fmt(metrics.get("corrupted_token_f1", 0.0)),
                     _fmt(metrics.get("token_f1_repair_delta", 0.0)),
                     _fmt(metrics.get("prediction_line_f1", 0.0)),

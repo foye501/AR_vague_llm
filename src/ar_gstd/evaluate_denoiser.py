@@ -7,6 +7,7 @@ from pathlib import Path
 import re
 from statistics import mean
 
+from .analyze_transition_cache import SQL_KEYWORDS, schema_identifiers
 from .train_seq2seq_denoiser import build_prompt_from_row
 
 REQUIRED_HEADINGS = ("## Key Decisions", "## Risks and Open Issues", "## To-do")
@@ -90,8 +91,9 @@ def score_predictions(rows: list[dict[str, str]]) -> dict[str, float | int]:
     prediction_token_f1 = [_token_f1(row["prediction"], row["clean_summary"]) for row in rows]
     corrupted_line_f1 = [_line_f1(row["corrupted_summary"], row["clean_summary"]) for row in rows]
     prediction_line_f1 = [_line_f1(row["prediction"], row["clean_summary"]) for row in rows]
+    category_metrics = score_sql_categories(rows)
 
-    return {
+    metrics = {
         "rows": len(rows),
         "prediction_exact_match": _rate(_normalize(row["prediction"]) == _normalize(row["clean_summary"]) for row in rows),
         "sql_exact_match": _rate(_normalize_sql(row["prediction"]) == _normalize_sql(row["clean_summary"]) for row in rows),
@@ -109,6 +111,60 @@ def score_predictions(rows: list[dict[str, str]]) -> dict[str, float | int]:
         "deadline_term_accuracy": _field_accuracy(rows, DEADLINE_TERMS),
         "decision_term_accuracy": _field_accuracy(rows, DECISION_TERMS),
     }
+    metrics.update(category_metrics)
+    return metrics
+
+
+def score_sql_categories(rows: list[dict[str, str]]) -> dict[str, float]:
+    categories = ("sql_keyword", "schema_identifier", "literal", "operator")
+    scores: dict[str, list[float]] = {category: [] for category in categories}
+    for row in rows:
+        schema_terms = schema_identifiers(row.get("transcript", ""))
+        prediction_by_category = categorize_sql_tokens(row["prediction"], schema_terms)
+        clean_by_category = categorize_sql_tokens(row["clean_summary"], schema_terms)
+        for category in categories:
+            if clean_by_category[category]:
+                scores[category].append(_f1_from_tokens(prediction_by_category[category], clean_by_category[category]))
+    return {f"{category}_token_f1": mean(values) if values else 0.0 for category, values in scores.items()}
+
+
+def categorize_sql_tokens(text: str, schema_terms: set[str]) -> dict[str, list[str]]:
+    result = {
+        "sql_keyword": [],
+        "schema_identifier": [],
+        "literal": [],
+        "operator": [],
+        "other": [],
+    }
+    for token in sql_tokens(text):
+        category = sql_token_category(token, schema_terms)
+        result[category].append(normalize_sql_token(token))
+    return result
+
+
+def sql_tokens(text: str) -> list[str]:
+    return re.findall(r"'[^']*'|\"[^\"]*\"|>=|<=|!=|<>|[A-Za-z_][A-Za-z0-9_]*|\d+(?:\.\d+)?|[=<>*/+\-]", text)
+
+
+def sql_token_category(token: str, schema_terms: set[str]) -> str:
+    normalized = normalize_sql_token(token)
+    if not normalized:
+        return "other"
+    if token.startswith(("'", '"')) and token.endswith(("'", '"')):
+        return "literal"
+    if re.fullmatch(r"\d+(?:\.\d+)?", normalized):
+        return "literal"
+    if normalized in SQL_KEYWORDS:
+        return "sql_keyword"
+    if normalized in schema_terms:
+        return "schema_identifier"
+    if re.fullmatch(r"[<>=!+\-*/]+", normalized):
+        return "operator"
+    return "other"
+
+
+def normalize_sql_token(token: str) -> str:
+    return token.strip().strip("'\"").lower()
 
 
 def _field_accuracy(rows: list[dict[str, str]], terms: tuple[str, ...]) -> float:
@@ -123,6 +179,10 @@ def _present_terms(text: str, terms: tuple[str, ...]) -> tuple[str, ...]:
 def _token_f1(candidate: str, target: str) -> float:
     candidate_tokens = _tokens(candidate)
     target_tokens = _tokens(target)
+    return _f1_from_tokens(candidate_tokens, target_tokens)
+
+
+def _f1_from_tokens(candidate_tokens: list[str], target_tokens: list[str]) -> float:
     if not candidate_tokens and not target_tokens:
         return 1.0
     if not candidate_tokens or not target_tokens:

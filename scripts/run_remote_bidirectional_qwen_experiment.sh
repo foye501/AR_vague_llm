@@ -36,6 +36,7 @@ SAVE_STEPS="${SAVE_STEPS:-1000}"
 MASK_TOKEN="${MASK_TOKEN:-[MASK]}"
 PAD_TOKEN="${PAD_TOKEN:-[PAD]}"
 DIFFICULTY_STRENGTH="${DIFFICULTY_STRENGTH:-0.75}"
+RUN_PREP="${RUN_PREP:-1}"
 
 TRAIN_EXTRA_ARGS=(
   --gradient-accumulation-steps "$GRADIENT_ACCUMULATION_STEPS"
@@ -57,95 +58,97 @@ if [[ "$STUDENT_FROM_SCRATCH" == "1" ]]; then
   TRAIN_EXTRA_ARGS+=(--from-scratch)
 fi
 
-python -m ar_gstd.prepare_sql_create_context \
-  --dataset "$DATASET_NAME" \
-  --output "$DATA_FILE" \
-  --max-examples "$DATASET_MAX_EXAMPLES" \
-  --seed 7
+if [[ "$RUN_PREP" == "1" ]]; then
+  python -m ar_gstd.prepare_sql_create_context \
+    --dataset "$DATASET_NAME" \
+    --output "$DATA_FILE" \
+    --max-examples "$DATASET_MAX_EXAMPLES" \
+    --seed 7
 
-python -m ar_gstd.build_transition_cache \
-  --input "$DATA_FILE" \
-  --output artifacts/ar_transition_cache.jsonl \
-  --teacher-model "$TEACHER_MODEL" \
-  --tokenizer-name "$TOKENIZER_NAME" \
-  --student-tokenizer-name "$TOKENIZER_NAME" \
-  --top-k "$TOP_K" \
-  --max-examples "$MAX_EXAMPLES" \
-  --max-target-tokens "$MAX_TARGET_TOKENS" \
-  --dtype "$TEACHER_DTYPE" \
-  --device auto
+  python -m ar_gstd.build_transition_cache \
+    --input "$DATA_FILE" \
+    --output artifacts/ar_transition_cache.jsonl \
+    --teacher-model "$TEACHER_MODEL" \
+    --tokenizer-name "$TOKENIZER_NAME" \
+    --student-tokenizer-name "$TOKENIZER_NAME" \
+    --top-k "$TOP_K" \
+    --max-examples "$MAX_EXAMPLES" \
+    --max-target-tokens "$MAX_TARGET_TOKENS" \
+    --dtype "$TEACHER_DTYPE" \
+    --device auto
 
-python -m ar_gstd.make_fixed_transition_cache \
-  --input artifacts/ar_transition_cache.jsonl \
-  --output artifacts/fixed_transition_cache.jsonl \
-  --top-k "$TOP_K"
+  python -m ar_gstd.make_fixed_transition_cache \
+    --input artifacts/ar_transition_cache.jsonl \
+    --output artifacts/fixed_transition_cache.jsonl \
+    --top-k "$TOP_K"
 
-python -m ar_gstd.analyze_transition_cache \
-  --conditional-cache artifacts/ar_transition_cache.jsonl \
-  --fixed-cache artifacts/fixed_transition_cache.jsonl \
-  --output-json artifacts/transition_cache_analysis.json \
-  --output-markdown artifacts/transition_cache_analysis.md
+  python -m ar_gstd.analyze_transition_cache \
+    --conditional-cache artifacts/ar_transition_cache.jsonl \
+    --fixed-cache artifacts/fixed_transition_cache.jsonl \
+    --output-json artifacts/transition_cache_analysis.json \
+    --output-markdown artifacts/transition_cache_analysis.md
 
-python -m ar_gstd.build_ar_token_scores \
-  --input "$DATA_FILE" \
-  --output artifacts/ar_token_scores.jsonl \
-  --teacher-model "$TEACHER_MODEL" \
-  --tokenizer-name "$TOKENIZER_NAME" \
-  --top-k 32 \
-  --max-examples "$MAX_EXAMPLES" \
-  --max-target-tokens "$MAX_TARGET_TOKENS" \
-  --dtype "$TEACHER_DTYPE" \
-  --device auto
+  python -m ar_gstd.build_ar_token_scores \
+    --input "$DATA_FILE" \
+    --output artifacts/ar_token_scores.jsonl \
+    --teacher-model "$TEACHER_MODEL" \
+    --tokenizer-name "$TOKENIZER_NAME" \
+    --top-k 32 \
+    --max-examples "$MAX_EXAMPLES" \
+    --max-target-tokens "$MAX_TARGET_TOKENS" \
+    --dtype "$TEACHER_DTYPE" \
+    --device auto
 
-python -m ar_gstd.materialize_diffusion_training_data \
-  --cache artifacts/ar_transition_cache.jsonl \
-  --output artifacts/train_pairs_bidir_absorb.jsonl \
-  --noise-kind absorbing \
-  --num-steps "$NUM_STEPS" \
-  --timesteps "$TIMESTEPS" \
-  --variants-per-timestep "$VARIANTS_PER_TIMESTEP" \
-  --mask-token "$MASK_TOKEN" \
-  --pad-token "$PAD_TOKEN" \
-  --seed 7
+  python -m ar_gstd.materialize_diffusion_training_data \
+    --cache artifacts/ar_transition_cache.jsonl \
+    --output artifacts/train_pairs_bidir_absorb.jsonl \
+    --noise-kind absorbing \
+    --num-steps "$NUM_STEPS" \
+    --timesteps "$TIMESTEPS" \
+    --variants-per-timestep "$VARIANTS_PER_TIMESTEP" \
+    --mask-token "$MASK_TOKEN" \
+    --pad-token "$PAD_TOKEN" \
+    --seed 7
 
-python -m ar_gstd.materialize_diffusion_training_data \
-  --cache artifacts/ar_transition_cache.jsonl \
-  --output artifacts/train_pairs_bidir_ar_absorb.jsonl \
-  --noise-kind ar_absorb \
-  --num-steps "$NUM_STEPS" \
-  --timesteps "$TIMESTEPS" \
-  --variants-per-timestep "$VARIANTS_PER_TIMESTEP" \
-  --ar-strength "$AR_STRENGTH" \
-  --mask-token "$MASK_TOKEN" \
-  --pad-token "$PAD_TOKEN" \
-  --seed 7
+  python -m ar_gstd.materialize_diffusion_training_data \
+    --cache artifacts/ar_transition_cache.jsonl \
+    --output artifacts/train_pairs_bidir_ar_absorb.jsonl \
+    --noise-kind ar_absorb \
+    --num-steps "$NUM_STEPS" \
+    --timesteps "$TIMESTEPS" \
+    --variants-per-timestep "$VARIANTS_PER_TIMESTEP" \
+    --ar-strength "$AR_STRENGTH" \
+    --mask-token "$MASK_TOKEN" \
+    --pad-token "$PAD_TOKEN" \
+    --seed 7
 
-python -m ar_gstd.materialize_diffusion_training_data \
-  --cache artifacts/fixed_transition_cache.jsonl \
-  --output artifacts/train_pairs_bidir_fixed_absorb.jsonl \
-  --noise-kind ar_absorb \
-  --num-steps "$NUM_STEPS" \
-  --timesteps "$TIMESTEPS" \
-  --variants-per-timestep "$VARIANTS_PER_TIMESTEP" \
-  --ar-strength "$AR_STRENGTH" \
-  --mask-token "$MASK_TOKEN" \
-  --pad-token "$PAD_TOKEN" \
-  --seed 7
+  python -m ar_gstd.materialize_diffusion_training_data \
+    --cache artifacts/fixed_transition_cache.jsonl \
+    --output artifacts/train_pairs_bidir_fixed_absorb.jsonl \
+    --noise-kind ar_absorb \
+    --num-steps "$NUM_STEPS" \
+    --timesteps "$TIMESTEPS" \
+    --variants-per-timestep "$VARIANTS_PER_TIMESTEP" \
+    --ar-strength "$AR_STRENGTH" \
+    --mask-token "$MASK_TOKEN" \
+    --pad-token "$PAD_TOKEN" \
+    --seed 7
 
-python -m ar_gstd.materialize_diffusion_training_data \
-  --cache artifacts/ar_transition_cache.jsonl \
-  --token-score-cache artifacts/ar_token_scores.jsonl \
-  --output artifacts/train_pairs_bidir_ar_adaptive.jsonl \
-  --noise-kind ar_absorb \
-  --mask-policy ar_difficulty \
-  --difficulty-strength "$DIFFICULTY_STRENGTH" \
-  --num-steps "$NUM_STEPS" \
-  --timesteps "$TIMESTEPS" \
-  --variants-per-timestep "$VARIANTS_PER_TIMESTEP" \
-  --ar-strength "$AR_STRENGTH" \
-  --mask-token "$MASK_TOKEN" \
-  --pad-token "$PAD_TOKEN" \
-  --seed 7
+  python -m ar_gstd.materialize_diffusion_training_data \
+    --cache artifacts/ar_transition_cache.jsonl \
+    --token-score-cache artifacts/ar_token_scores.jsonl \
+    --output artifacts/train_pairs_bidir_ar_adaptive.jsonl \
+    --noise-kind ar_absorb \
+    --mask-policy ar_difficulty \
+    --difficulty-strength "$DIFFICULTY_STRENGTH" \
+    --num-steps "$NUM_STEPS" \
+    --timesteps "$TIMESTEPS" \
+    --variants-per-timestep "$VARIANTS_PER_TIMESTEP" \
+    --ar-strength "$AR_STRENGTH" \
+    --mask-token "$MASK_TOKEN" \
+    --pad-token "$PAD_TOKEN" \
+    --seed 7
+fi
 
 python -m ar_gstd.train_bidirectional_qwen_denoiser \
   --train-file artifacts/train_pairs_bidir_absorb.jsonl \

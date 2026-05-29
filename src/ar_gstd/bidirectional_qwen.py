@@ -27,6 +27,7 @@ def configure_qwen_config_for_bidirectional_denoising(config: Any, tokenizer) ->
         config.bos_token_id = tokenizer.bos_token_id
     config.use_cache = False
     config.is_decoder = False
+    config.tie_word_embeddings = False
 
 
 def build_bidirectional_qwen_for_masked_lm_class():
@@ -36,12 +37,13 @@ def build_bidirectional_qwen_for_masked_lm_class():
     from transformers.models.qwen2.modeling_qwen2 import Qwen2Model, Qwen2PreTrainedModel
 
     class BidirectionalQwenForMaskedLM(Qwen2PreTrainedModel):
-        _tied_weights_keys = ["lm_head.weight"]
+        _tied_weights_keys: list[str] = []
 
         def __init__(self, config):
             super().__init__(config)
             config.use_cache = False
             config.is_decoder = False
+            config.tie_word_embeddings = False
             self.model = Qwen2Model(config)
             self.vocab_size = config.vocab_size
             self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)

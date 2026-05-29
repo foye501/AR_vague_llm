@@ -132,8 +132,25 @@ def load_bidirectional_qwen_for_masked_lm(
         configure_qwen_config_for_bidirectional_denoising(model.config, tokenizer)
         if _embedding_vocab_size(model) != len(tokenizer):
             model.resize_token_embeddings(len(tokenizer))
+        initialize_lm_head_from_embeddings(model)
         model._disable_causal_attention_flags()
     return model
+
+
+def initialize_lm_head_from_embeddings(model) -> None:
+    input_embeddings = model.get_input_embeddings()
+    output_embeddings = model.get_output_embeddings()
+    if input_embeddings is None or output_embeddings is None:
+        return
+    if not hasattr(input_embeddings, "weight") or not hasattr(output_embeddings, "weight"):
+        return
+
+    rows = min(input_embeddings.weight.shape[0], output_embeddings.weight.shape[0])
+    cols = min(input_embeddings.weight.shape[1], output_embeddings.weight.shape[1])
+    import torch
+
+    with torch.no_grad():
+        output_embeddings.weight[:rows, :cols].copy_(input_embeddings.weight[:rows, :cols])
 
 
 def _make_bidirectional_attention_mask(

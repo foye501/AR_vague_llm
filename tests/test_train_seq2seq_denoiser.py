@@ -10,7 +10,7 @@ from ar_gstd.train_seq2seq_denoiser import (
 
 
 class NewTrainingArgs:
-    def __init__(self, output_dir, eval_strategy=None, save_strategy=None, report_to=None):
+    def __init__(self, output_dir, eval_strategy=None, save_strategy=None, report_to=None, max_grad_norm=None):
         pass
 
 
@@ -59,6 +59,7 @@ def test_training_args_uses_eval_strategy_when_supported() -> None:
         batch_size=2,
         gradient_accumulation_steps=4,
         learning_rate=1e-4,
+        max_grad_norm=0.5,
         seed=7,
         bf16=True,
         save_strategy="no",
@@ -68,6 +69,7 @@ def test_training_args_uses_eval_strategy_when_supported() -> None:
     assert "evaluation_strategy" not in kwargs
     assert kwargs["gradient_accumulation_steps"] == 4
     assert kwargs["save_strategy"] == "no"
+    assert kwargs["max_grad_norm"] == 0.5
 
 
 def test_training_args_uses_evaluation_strategy_when_supported() -> None:
@@ -78,6 +80,7 @@ def test_training_args_uses_evaluation_strategy_when_supported() -> None:
         batch_size=2,
         gradient_accumulation_steps=1,
         learning_rate=1e-4,
+        max_grad_norm=1.0,
         seed=7,
     )
 

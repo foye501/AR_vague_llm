@@ -21,6 +21,7 @@ def main() -> None:
     parser.add_argument("--batch-size", type=int, default=4)
     parser.add_argument("--gradient-accumulation-steps", type=int, default=1)
     parser.add_argument("--learning-rate", type=float, default=5e-5)
+    parser.add_argument("--max-grad-norm", type=float, default=1.0)
     parser.add_argument("--bf16", action="store_true")
     parser.add_argument("--fp16", action="store_true")
     parser.add_argument("--gradient-checkpointing", action="store_true")
@@ -110,6 +111,7 @@ def main() -> None:
             batch_size=args.batch_size,
             gradient_accumulation_steps=args.gradient_accumulation_steps,
             learning_rate=args.learning_rate,
+            max_grad_norm=args.max_grad_norm,
             seed=args.seed,
             bf16=args.bf16,
             fp16=args.fp16,
